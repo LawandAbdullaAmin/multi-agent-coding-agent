@@ -94,6 +94,38 @@ mit Tokens, Kosten und Dauer. Die Traces sind nach Lauf-ID und Modus filterbar.
 Docker Desktop muss laufen. Das Sandbox-Image wird beim ersten Start automatisch gebaut.
 Ohne Docker: `--no-sandbox` (Tests laufen dann lokal, nur für vertrauenswürdigen Code).
 
+## Evaluation
+
+Eigener Benchmark mit 10 Aufgaben in [benchmark/tasks/](benchmark/tasks/), von Off-by-one-Fehlern über
+Fehler in einer anderen als der getesteten Datei bis zu einer Feature-Anfrage im Stil eines Issues.
+
+- **Versteckte Tests:** Bewertet wird zusätzlich mit Tests aus `hidden/`, die der Agent nie sieht.
+- **Schutz gegen Schummeln:** Bewertet wird immer mit den Original-Tests. Verändert der Agent Tests, wird das markiert.
+- **Geprüfter Benchmark:** Ein Test stellt sicher, dass jede Aufgabe anfangs fehlschlägt und mit der
+  Musterlösung aus `solution/` besteht.
+
+```
+python -m coding_agent.evaluate --repeats 3
+```
+
+**Ergebnis** (`gpt-4.1-mini`, 10 Aufgaben × 3 Wiederholungen, [Bericht](benchmark/results/20261031-153014.md)):
+
+| Modus | Gelöst | Ø Dauer | Ø Tokens | Ø Kosten pro Aufgabe |
+|---|---|---|---|---|
+| Team (Supervisor + 3 Fach-Agenten) | **25/30 (83 %)** | 33 s | 22.293 | $0,0125 |
+| Einzel-Agent | 23/30 (77 %) | 15 s | 21.786 | $0,0100 |
+
+Beobachtungen:
+
+- Das Team löst etwas mehr Aufgaben, braucht aber gut doppelt so lange und kostet rund 25 % mehr.
+  Bei 30 Läufen pro Modus ist der Unterschied von 2 Aufgaben noch kein belastbarer Beleg.
+- Das Team ist **zuverlässiger**: Bei leichten und mittleren Aufgaben löst es jede in 3 von 3 Läufen,
+  der Einzel-Agent scheitert dort gelegentlich (bank_account, roman, shopping_cart).
+- **Gemeinsamer Schwachpunkt:** Bei `leap_year` beheben beide Modi den getesteten Fehler, übersehen aber
+  einen zweiten, der nur in der Dokumentation beschrieben ist (0/3). Die Agenten hören auf, sobald die
+  sichtbaren Tests grün sind, statt die Spezifikation vollständig umzusetzen.
+- Die Feature-Anfrage (`duration`) ist für beide Modi die schwierigste lösbare Aufgabe (1/3 bzw. 2/3).
+
 ## Tests
 
 ```
@@ -108,4 +140,5 @@ python -m pytest tests
 - [x] Phase 3a: Human-in-the-loop (Freigabe, Verwerfen, Feedback-Schleife)
 - [x] Phase 3b: Persistentes Checkpointing (Läufe später fortsetzen)
 - [x] Phase 3c: LangSmith-Tracing
-- [ ] Phase 4: Evaluation auf SWE-bench Lite
+- [x] Phase 4a: Eigener Benchmark mit versteckten Tests, Team gegen Einzel-Agent
+- [ ] Phase 4b: Evaluation auf SWE-bench Lite

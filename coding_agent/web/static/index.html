@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Coding-Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+</head>
+<body>
+  <canvas class="space" id="space" aria-label="Animierte 3D-Ansicht des Agenten-Teams"></canvas>
+  <div class="space-labels" id="spaceLabels" aria-hidden="true"></div>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span>Coding-Agent</span>
+    </div>
+    <div class="run-meta hidden" id="runMeta">
+      <span class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Team arbeitet</span></span>
+      <div class="counter"><span class="counter-label">Zeit</span><span class="counter-value" id="statTime">0:00</span></div>
+      <div class="counter"><span class="counter-label">Kosten</span><span class="counter-value" id="statCost">$0.000</span></div>
+      <div class="counter"><span class="counter-label">Tokens</span><span class="counter-value" id="statTokens">0</span></div>
+      <button class="ghost-button small" id="newRun">Neuer Lauf</button>
+    </div>
+  </header>
+
+  <!-- Startseite -->
+  <main class="screen" id="startScreen">
+    <section class="hero">
+      <div class="hero-text">
+        <div class="eyebrow">LangGraph · Multi-Agent · Docker-Sandbox</div>
+        <h1>Ein KI-Team, das<br><span class="gradient-text">deinen Code repariert.</span></h1>
+        <p class="lead">Ein Supervisor steuert fünf spezialisierte Agenten: Sie analysieren, schreiben Tests, programmieren
+          und prüfen sich gegenseitig. Du siehst live zu und entscheidest am Ende, ob die Änderungen übernommen werden.</p>
+      </div>
+      <div class="hero-galaxy" id="heroGalaxy"></div>
+    </section>
+
+    <section class="panel launch">
+      <div class="panel-head">
+        <h2>Projekt wählen</h2>
+        <span class="muted" id="projectCount"></span>
+      </div>
+      <div class="project-grid" id="projectGrid"></div>
+
+      <label class="field-label" for="taskInput">Aufgabe für das Team</label>
+      <textarea id="taskInput" rows="3"></textarea>
+
+      <div class="launch-row">
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" id="budgetToggle" checked><span class="track"></span>
+            <span><strong>Budget-Modus</strong><small id="budgetHint">alle Rollen mit günstigem Modell</small></span></label>
+          <label class="toggle"><input type="checkbox" id="sandboxToggle" checked><span class="track"></span>
+            <span><strong>Docker-Sandbox</strong><small id="sandboxHint">Code läuft isoliert</small></span></label>
+        </div>
+        <div class="launch-actions">
+          <button class="ghost-button" id="previewButton">Vorschau ansehen · kostenlos</button>
+          <button class="ghost-button hidden" id="demoButton">Aufzeichnung ansehen · kostenlos</button>
+          <button class="primary-button" id="startButton"><span>Team starten</span></button>
+        </div>
+      </div>
+      <p class="cost-hint" id="costHint">Geschätzte Kosten pro Lauf: etwa 1–3 Cent</p>
+    </section>
+
+    <!-- Statische Vorschau (z. B. GitHub Pages): kein Server, kein Modell, keine Kosten -->
+    <section class="panel launch showcase hidden" id="showcasePanel">
+      <div>
+        <h2>Live-Demo</h2>
+        <p class="muted">Diese Seite ist eine statische Vorschau: Der Demo-Lauf ist simuliert und kostet nichts.
+          Echte Läufe auf eigenen Projekten startest du lokal mit eigenem OpenAI-Schlüssel, die Anleitung steht im Repository.</p>
+      </div>
+      <div class="launch-actions">
+        <a class="ghost-button hidden" id="repoLink" target="_blank" rel="noopener">Code auf GitHub</a>
+        <button class="primary-button" id="showcaseButton"><span>Demo-Lauf starten</span></button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Laufansicht -->
+  <main class="screen run-screen hidden" id="runScreen">
+    <section class="stage" id="stage">
+      <div class="task-card">
+        <div class="task-label" id="taskProject">Aufgabe</div>
+        <div class="task-text" id="taskText"></div>
+      </div>
+    </section>
+
+    <section class="feed-wrap">
+      <div class="feed-head">
+        <h2>Live-Verlauf</h2>
+        <span class="muted" id="feedCount">0 Schritte</span>
+      </div>
+      <div class="feed" id="feed"></div>
+      <button class="new-steps hidden" id="newSteps"></button>
+    </section>
+  </main>
+
+  <!-- Ergebnis -->
+  <div class="sheet-backdrop hidden" id="sheetBackdrop"></div>
+  <section class="sheet hidden" id="sheet" aria-live="polite">
+    <div class="sheet-grid">
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 120 120">
+          <circle class="ring-track" cx="60" cy="60" r="52"/>
+          <circle class="ring-value" id="ringValue" cx="60" cy="60" r="52"/>
+        </svg>
+        <div class="ring-icon" id="ringIcon"></div>
+      </div>
+      <div class="sheet-body">
+        <div class="eyebrow" id="sheetEyebrow">Ergebnis</div>
+        <h2 id="sheetTitle">Bereit zur Freigabe</h2>
+        <p class="sheet-summary" id="sheetSummary"></p>
+        <div class="file-chips" id="fileChips"></div>
+        <button class="link-button" id="diffToggle">Änderungen im Detail ansehen</button>
+        <div class="diff hidden" id="diffView"></div>
+      </div>
+    </div>
+    <div class="sheet-actions" id="sheetActions">
+      <div class="feedback-row">
+        <input id="feedbackInput" placeholder="Feedback an das Team, z. B. „Fehlermeldungen bitte auf Englisch“">
+        <button class="ghost-button" id="feedbackButton">Feedback senden</button>
+      </div>
+      <div class="decision-row">
+        <button class="ghost-button" id="rejectButton">Verwerfen</button>
+        <button class="primary-button" id="approveButton"><span>Änderungen übernehmen</span></button>
+      </div>
+    </div>
+    <button class="sheet-close hidden" id="sheetClose">Zur Galaxie zurück</button>
+  </section>
+
+  <div class="toast hidden" id="toast"></div>
+  <script type="importmap">
+    { "imports": { "three": "./static/vendor/three/build/three.module.min.js" } }
+  </script>
+  <script type="module" src="static/app.js"></script>
+</body>
+</html>

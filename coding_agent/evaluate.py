@@ -1,10 +1,10 @@
-"""Evaluation: Team gegen Einzel-Agent auf dem eigenen Benchmark.
+"""Evaluation des Teams auf dem eigenen Benchmark.
 
-    python -m coding_agent.evaluate                      # alle Aufgaben, beide Modi
-    python -m coding_agent.evaluate --tasks roman orders --modes team --repeats 3
+    python -m coding_agent.evaluate                      # alle Aufgaben
+    python -m coding_agent.evaluate --tasks roman orders --repeats 3
 
-Für jede Aufgabe aus benchmark/tasks/ und jeden Modus:
-1. Der Agent arbeitet ohne Freigabe auf einer Kopie von repo/.
+Für jede Aufgabe aus benchmark/tasks/:
+1. Das Team arbeitet ohne Freigabe auf einer Kopie von repo/.
 2. Bewertet wird mit den Original-Tests aus repo/ (auch wenn der Agent Tests verändert hat)
    plus versteckten Tests aus hidden/, die der Agent nie gesehen hat.
 3. Gemessen werden Erfolg, Dauer, Tokens und geschätzte Kosten.
@@ -21,9 +21,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_core.callbacks import get_usage_metadata_callback
-from langchain_core.messages import HumanMessage
 
-from coding_agent.agent import build_graph
 from coding_agent.team import build_team_graph, model_names
 from coding_agent.tools import IGNORED_DIRS, ensure_sandbox_image, iter_files, make_tools
 
@@ -52,7 +50,6 @@ class Task:
 class Result:
     task: str
     difficulty: str
-    mode: str
     repeat: int
     passed: bool
     tests_modified: bool
@@ -112,15 +109,15 @@ def estimate_cost(usage: dict) -> float | None:
     return total
 
 
-def run_one(task: Task, mode: str, repeat: int, run_dir: Path, sandbox: bool) -> Result:
-    name = f"{task.name}-{mode}-{repeat}"
+def run_one(task: Task, repeat: int, run_dir: Path, sandbox: bool) -> Result:
+    name = f"{task.name}-{repeat}"
     workspace = run_dir / name
     copy_repo(task.path / "repo", workspace)
     config = {
         "recursion_limit": 200,
         "configurable": {"thread_id": name},
-        "run_name": f"eval {task.name} ({mode})",
-        "tags": ["eval", mode],
+        "run_name": f"eval {task.name}",
+        "tags": ["eval"],
         "metadata": {"task": task.name, "repeat": repeat},
     }
 
@@ -128,12 +125,7 @@ def run_one(task: Task, mode: str, repeat: int, run_dir: Path, sandbox: bool) ->
     start = time.perf_counter()
     with get_usage_metadata_callback() as usage_callback:
         try:
-            if mode == "team":
-                app = build_team_graph(workspace, sandbox, human_review=False)
-                app.invoke({"task": task.description}, config)
-            else:
-                app = build_graph(workspace, sandbox)
-                app.invoke({"messages": [HumanMessage(task.description)], "steps": 0}, config)
+            build_team_graph(workspace, sandbox, human_review=False).invoke({"task": task.description}, config)
         except Exception as e:  # Ein abgestürzter Lauf zählt als nicht gelöst, die Evaluation läuft weiter.
             error = f"{type(e).__name__}: {e}"
     seconds = time.perf_counter() - start
@@ -141,7 +133,7 @@ def run_one(task: Task, mode: str, repeat: int, run_dir: Path, sandbox: bool) ->
     passed, tests_modified, _ = grade(task, workspace, run_dir / f"{name}-grading", sandbox)
     usage = usage_callback.usage_metadata
     return Result(
-        task=task.name, difficulty=task.difficulty, mode=mode, repeat=repeat,
+        task=task.name, difficulty=task.difficulty, repeat=repeat,
         passed=passed and not error, tests_modified=tests_modified and not task.allow_test_changes,
         seconds=round(seconds, 1),
         input_tokens=sum(u["input_tokens"] for u in usage.values()),
@@ -150,29 +142,22 @@ def run_one(task: Task, mode: str, repeat: int, run_dir: Path, sandbox: bool) ->
     )
 
 
-def summarize(results: list[Result], tasks: list[Task], modes: list[str]) -> str:
-    lines = ["| Modus | Gelöst | Ø Dauer | Ø Tokens | Ø Kosten | Tests verändert |",
-             "|---|---|---|---|---|---|"]
-    for mode in modes:
-        rs = [r for r in results if r.mode == mode]
-        costs = [r.cost_usd for r in rs if r.cost_usd is not None]
-        cost = f"${sum(costs) / len(costs):.4f}" if costs else "?"
-        lines.append(
-            f"| {mode} | {sum(r.passed for r in rs)}/{len(rs)} ({100 * sum(r.passed for r in rs) / len(rs):.0f} %) "
-            f"| {sum(r.seconds for r in rs) / len(rs):.0f} s "
-            f"| {sum(r.input_tokens + r.output_tokens for r in rs) // len(rs):,} "
-            f"| {cost} | {sum(r.tests_modified for r in rs)} |"
-        )
+def summarize(results: list[Result], tasks: list[Task]) -> str:
+    solved = sum(r.passed for r in results)
+    costs = [r.cost_usd for r in results if r.cost_usd is not None]
+    cost = f"${sum(costs) / len(costs):.4f}" if costs else "?"
+    lines = ["| Gelöst | Ø Dauer | Ø Tokens | Ø Kosten | Tests verändert |", "|---|---|---|---|---|",
+             f"| {solved}/{len(results)} ({100 * solved / len(results):.0f} %) "
+             f"| {sum(r.seconds for r in results) / len(results):.0f} s "
+             f"| {sum(r.input_tokens + r.output_tokens for r in results) // len(results):,} "
+             f"| {cost} | {sum(r.tests_modified for r in results)} |"]
 
-    lines += ["", "| Aufgabe | Schwierigkeit | Art | " + " | ".join(modes) + " |",
-              "|---|---|---|" + "---|" * len(modes)]
+    lines += ["", "| Aufgabe | Schwierigkeit | Art | Gelöst |", "|---|---|---|---|"]
     for task in tasks:
-        cells = []
-        for mode in modes:
-            rs = [r for r in results if r.task == task.name and r.mode == mode]
-            solved = sum(r.passed for r in rs)
-            cells.append(("✅" if solved == len(rs) else "❌" if solved == 0 else "⚠️") + f" {solved}/{len(rs)}")
-        lines.append(f"| {task.name} | {task.difficulty} | {task.kind} | " + " | ".join(cells) + " |")
+        rs = [r for r in results if r.task == task.name]
+        ok = sum(r.passed for r in rs)
+        mark = "✅" if ok == len(rs) else "❌" if ok == 0 else "⚠️"
+        lines.append(f"| {task.name} | {task.difficulty} | {task.kind} | {mark} {ok}/{len(rs)} |")
     return "\n".join(lines)
 
 
@@ -182,8 +167,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Evaluation des Coding-Agenten")
     parser.add_argument("--tasks", nargs="+", help="Nur diese Aufgaben (Ordnernamen in benchmark/tasks)")
-    parser.add_argument("--modes", nargs="+", choices=["team", "single"], default=["team", "single"])
-    parser.add_argument("--repeats", type=int, default=1, help="Läufe pro Aufgabe und Modus")
+    parser.add_argument("--repeats", type=int, default=1, help="Läufe pro Aufgabe")
     parser.add_argument("--workers", type=int, default=4, help="Parallele Läufe")
     parser.add_argument("--no-sandbox", action="store_true", help="Tests lokal statt im Docker-Container")
     args = parser.parse_args()
@@ -194,24 +178,24 @@ def main() -> None:
     tasks = load_tasks(args.tasks)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     run_dir = EVAL_DIR / stamp
-    jobs = [(task, mode, repeat) for task in tasks for mode in args.modes for repeat in range(1, args.repeats + 1)]
-    print(f"{len(tasks)} Aufgaben x {len(args.modes)} Modi x {args.repeats} Wiederholungen = {len(jobs)} Läufe\n")
+    jobs = [(task, repeat) for task in tasks for repeat in range(1, args.repeats + 1)]
+    print(f"{len(tasks)} Aufgaben x {args.repeats} Wiederholungen = {len(jobs)} Läufe\n")
 
     results = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(run_one, task, mode, repeat, run_dir, sandbox) for task, mode, repeat in jobs]
+        futures = [pool.submit(run_one, task, repeat, run_dir, sandbox) for task, repeat in jobs]
         for future in as_completed(futures):
             r = future.result()
             results.append(r)
             status = "✅" if r.passed else "❌"
             note = (" (Tests verändert)" if r.tests_modified else "") + (f" [{r.error[:80]}]" if r.error else "")
-            print(f"[{len(results):>2}/{len(jobs)}] {status} {r.task:<14} {r.mode:<6} {r.seconds:>5.0f} s{note}")
+            print(f"[{len(results):>2}/{len(jobs)}] {status} {r.task:<14} {r.seconds:>5.0f} s{note}")
 
-    results.sort(key=lambda r: (r.task, r.mode, r.repeat))
-    report = summarize(results, tasks, args.modes)
+    results.sort(key=lambda r: (r.task, r.repeat))
+    report = summarize(results, tasks)
     models = model_names()
-    header = (f"# Evaluation {stamp}\n\nModelle: günstig `{models['fast']}`, stark `{models['strong']}` "
-              f"(nur Team), Wiederholungen: {args.repeats}\n\n")
+    header = (f"# Evaluation {stamp}\n\nModelle: günstig `{models['fast']}`, stark `{models['strong']}`, "
+              f"Wiederholungen: {args.repeats}\n\n")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     (RESULTS_DIR / f"{stamp}.json").write_text(
         json.dumps([asdict(r) for r in results], indent=2, ensure_ascii=False), encoding="utf-8")

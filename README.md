@@ -1,7 +1,17 @@
-# Coding-Agent
+# Multi-Agent Coding-Agent
 
-Ein autonomer Coding-Agent mit LangGraph. Er erkundet ein Repository, führt die Tests aus,
-findet die Fehlerursache, ändert den Code und prüft seine Änderung, bis alle Tests grün sind.
+[![Tests](https://github.com/GITHUB_USER/multi-agent-coding-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/GITHUB_USER/multi-agent-coding-agent/actions/workflows/ci.yml)
+[![Website](https://github.com/GITHUB_USER/multi-agent-coding-agent/actions/workflows/pages.yml/badge.svg)](https://GITHUB_USER.github.io/multi-agent-coding-agent/)
+
+Ein autonomes KI-Team mit LangGraph, das Fehler in Python-Projekten behebt und Features umsetzt.
+Ein Supervisor verteilt die Arbeit an fünf spezialisierte Agenten: Sie analysieren den Code, schreiben
+Tests aus der Anforderung, programmieren, führen die Tests in einer Docker-Sandbox aus und prüfen sich
+gegenseitig. Der Mensch gibt das Ergebnis am Ende frei.
+
+**Live-Demo:** [GITHUB_USER.github.io/multi-agent-coding-agent](https://GITHUB_USER.github.io/multi-agent-coding-agent/)
+(statische Vorschau mit simuliertem Lauf, ohne Server und ohne Kosten)
+
+![Weboberfläche: Der Supervisor schickt einen Auftrag an den Explorer](docs/screenshot.png)
 
 ## Architektur
 
@@ -60,15 +70,6 @@ in einer SQLite-Datenbank gespeichert (`.runs/checkpoints.sqlite`, `thread_id` =
 Wird ein Lauf unterbrochen (Fenster geschlossen, Strg+C, Absturz), läuft er mit `--resume`
 am letzten gespeicherten Schritt weiter. Wartet er auf die Freigabe, geht es direkt dort weiter.
 
-### Single-Modus: ein Agent (ReAct-Schleife)
-
-```
-START -> agent --(Werkzeugaufrufe)--> tools
-           ^                            |
-           +----------------------------+
-         agent --(fertig / Schrittlimit)--> END
-```
-
 ### Werkzeuge
 
 | Werkzeug | Zweck |
@@ -99,11 +100,27 @@ START -> agent --(Werkzeugaufrufe)--> tools
 pip install -r requirements.txt
 
 python -m coding_agent --repo examples/calculator
-python -m coding_agent --repo examples/calculator --mode single
 python -m coding_agent --repo <pfad> "Eigene Aufgabe"
 python -m coding_agent --repo <pfad> --auto-approve   # ohne Freigabe, z. B. für Evaluationen
 python -m coding_agent --resume <lauf-id>             # unterbrochenen Lauf fortsetzen
 ```
+
+**Weboberfläche:**
+
+```
+python -m coding_agent.web          # öffnet http://localhost:8000
+```
+
+FastAPI-Server, der den Graphen in einem Hintergrund-Thread ausführt und jeden Schritt per
+Server-Sent Events an den Browser streamt. Die Oberfläche zeigt das Team als 3D-Galaxie (Three.js/WebGL):
+Der Supervisor ist der leuchtende Kern, die Fach-Agenten kreisen als Planeten um ihn. Jeder Auftrag
+fliegt als Energiestrahl zum Agenten, jeder Bericht zurück. Daneben läuft der Verlauf mit Aufträgen,
+Werkzeugaufrufen, Testergebnissen, Berichten und den laufenden Kosten. Am Ende stehen Diff und
+Testergebnis zur Freigabe: übernehmen, verwerfen oder Feedback an das Team.
+
+- **Budget-Modus:** alle Rollen mit dem günstigen Modell.
+- **Vorschau:** ein simulierter Lauf ohne Modellaufrufe, auch als statische Seite auf GitHub Pages.
+- Der Server lauscht nur auf `127.0.0.1`. Beispiele und Benchmark-Aufgaben werden vor jedem Lauf kopiert.
 
 **Tracing (optional):** Mit `LANGSMITH_TRACING=true` und `LANGSMITH_API_KEY` in der `.env` wird jeder Lauf
 in LangSmith aufgezeichnet: jeder Supervisor-Entscheid, jeder Modell- und Werkzeugaufruf der Fach-Agenten,
@@ -130,7 +147,7 @@ python -m coding_agent.evaluate --repeats 3
 
 | Version | Gelöst | Ø Dauer | Ø Tokens | Ø Kosten pro Aufgabe |
 |---|---|---|---|---|
-| Einzel-Agent (`gpt-4.1-mini`) | 23/30 (77 %) | 15 s | 21.786 | $0,010 |
+| Einzel-Agent als Vergleichswert (`gpt-4.1-mini`, inzwischen entfernt) | 23/30 (77 %) | 15 s | 21.786 | $0,010 |
 | Team v1: explorer, developer, tester (`gpt-4.1-mini`) | 25/30 (83 %) | 33 s | 22.293 | $0,013 |
 | Team v2: + test_writer, reviewer, Guardrails (`gpt-4.1-mini`) | 23/30 (77 %) | 67 s | 62.730 | $0,032 |
 | Team v3: + Belegpflicht für Tests, Schutz vor Steuerzeichen (`gpt-4.1-mini`) | 25/30 (83 %) | 48 s | 39.549 | $0,020 |
@@ -151,15 +168,17 @@ Was die Iterationen gezeigt haben:
 **Grenzen dieser Messung:**
 
 - Die Aufgaben sind klein (1–3 Dateien) und für aktuelle Modelle eher leicht. Bei 100 % ist der Benchmark ausgereizt.
-- Ein Kontrollexperiment fehlt noch: Ob ein **Einzel-Agent mit `gpt-4.1`** ebenso gut abschneidet, ist nicht gemessen.
-  Der Vorsprung von v4 lässt sich deshalb noch nicht sicher der Architektur statt dem stärkeren Modell zuschreiben.
+- Ob ein **Einzel-Agent mit `gpt-4.1`** ebenso gut abgeschnitten hätte, wurde nicht gemessen. Der Vorsprung von v4
+  lässt sich deshalb nicht sicher der Architektur statt dem stärkeren Modell zuschreiben.
 - Die Kosten sind aus Token-Zahlen und Listenpreisen geschätzt, ohne Rabatt für gecachte Eingaben.
 
 ## Tests
 
 ```
-python -m pytest tests
+python -m pytest
 ```
+
+Läuft bei jedem Push automatisch in GitHub Actions.
 
 ## Roadmap
 
@@ -172,6 +191,6 @@ python -m pytest tests
 - [x] Phase 4a: Eigener Benchmark mit versteckten Tests, Team gegen Einzel-Agent
 - [x] Phase 5a: Test-Autor, Reviewer, Rollenrechte und Abschluss-Guardrails im Code
 - [x] Phase 5b: Modell nach Bedarf (günstig / stark, Eskalation des Entwicklers)
-- [ ] Weboberfläche
-- [ ] Kontrollexperiment: Einzel-Agent mit starkem Modell
+- [x] Weboberfläche: FastAPI + Server-Sent Events, 3D-Galaxie mit Three.js, statische Demo auf GitHub Pages
+- [x] Einzel-Agent entfernt, nur noch das Multi-Agent-Team
 - [ ] Größere Projekte: Repo-Map, Evaluation auf SWE-bench Lite

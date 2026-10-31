@@ -1,0 +1,1 @@
+"""Weboberfläche des Coding-Agenten."""

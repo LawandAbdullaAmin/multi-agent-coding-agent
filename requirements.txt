@@ -4,3 +4,6 @@ langchain-openai
 langgraph-checkpoint-sqlite
 python-dotenv
 pytest
+fastapi
+uvicorn
+httpx

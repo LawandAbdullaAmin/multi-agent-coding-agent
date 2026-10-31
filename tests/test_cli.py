@@ -1,4 +1,5 @@
-from coding_agent.__main__ import apply_changes, changed_files, parse_review_answer
+from coding_agent.__main__ import parse_review_answer
+from coding_agent.runs import apply_changes, changed_files, diff_text
 
 
 def test_parse_review_answer():
@@ -19,6 +20,7 @@ def test_apply_changes_copies_only_changed_and_new_files(tmp_path):
     (workspace / "new.py").write_text("y = 1\n", encoding="utf-8")
 
     assert sorted(p.as_posix() for p in changed_files(original, workspace)) == ["app.py", "new.py"]
+    assert "-x = 1" in diff_text(original, workspace) and "+y = 1" in diff_text(original, workspace)
     apply_changes(original, workspace)
     assert (original / "app.py").read_text(encoding="utf-8") == "x = 2\n"
     assert (original / "new.py").read_text(encoding="utf-8") == "y = 1\n"

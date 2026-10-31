@@ -241,8 +241,8 @@ def write_policies(repo: Path) -> dict[str, WritePolicy | None]:
 
 
 def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True,
-                     checkpointer: BaseCheckpointSaver | None = None):
-    names = model_names()
+                     checkpointer: BaseCheckpointSaver | None = None, models: dict[str, str] | None = None):
+    names = models or model_names()
     models = {tier: make_model(name) for tier, name in names.items()}
     toolsets = {name: {t.name: t for t in make_tools(repo, sandbox, policy)}
                 for name, policy in write_policies(repo).items()}

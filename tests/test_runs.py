@@ -14,7 +14,7 @@ def runs_dir(tmp_path, monkeypatch):
 
 
 def test_save_and_load_run():
-    run = Run(id="demo-1", task="Fix", repo="C:/repo", workspace="C:/ws", mode="team",
+    run = Run(id="demo-1", task="Fix", repo="C:/repo", workspace="C:/ws",
               sandbox=True, human_review=True, in_place=False)
     save_run(run)
     assert load_run("demo-1") == run

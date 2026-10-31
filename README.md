@@ -40,6 +40,11 @@ supervisor --(finish)--> review --(freigeben / verwerfen)--> END
     +------(Feedback)-------+
 ```
 
+**Persistente Läufe:** Jeder Lauf hat eine Lauf-ID. Der Zustand des Graphen wird nach jedem Schritt
+in einer SQLite-Datenbank gespeichert (`.runs/checkpoints.sqlite`, `thread_id` = Lauf-ID).
+Wird ein Lauf unterbrochen (Fenster geschlossen, Strg+C, Absturz), läuft er mit `--resume`
+am letzten gespeicherten Schritt weiter. Wartet er auf die Freigabe, geht es direkt dort weiter.
+
 ### Single-Modus: ein Agent (ReAct-Schleife)
 
 ```
@@ -79,6 +84,7 @@ python -m coding_agent --repo examples/calculator
 python -m coding_agent --repo examples/calculator --mode single
 python -m coding_agent --repo <pfad> "Eigene Aufgabe"
 python -m coding_agent --repo <pfad> --auto-approve   # ohne Freigabe, z. B. für Evaluationen
+python -m coding_agent --resume <lauf-id>             # unterbrochenen Lauf fortsetzen
 ```
 
 Docker Desktop muss laufen. Das Sandbox-Image wird beim ersten Start automatisch gebaut.
@@ -96,5 +102,6 @@ python -m pytest tests
 - [x] Phase 2a: Docker-Sandbox für die Code-Ausführung
 - [x] Phase 2b: Mehrere Agenten mit Supervisor
 - [x] Phase 3a: Human-in-the-loop (Freigabe, Verwerfen, Feedback-Schleife)
-- [ ] Phase 3b: Persistentes Checkpointing (Läufe später fortsetzen), LangSmith-Tracing
+- [x] Phase 3b: Persistentes Checkpointing (Läufe später fortsetzen)
+- [ ] Phase 3c: LangSmith-Tracing
 - [ ] Phase 4: Evaluation auf SWE-bench Lite

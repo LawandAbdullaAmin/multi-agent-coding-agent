@@ -22,6 +22,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
@@ -122,7 +123,8 @@ def last_test_result(messages: list) -> bool | None:
     return passed
 
 
-def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True):
+def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True,
+                     checkpointer: BaseCheckpointSaver | None = None):
     model = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0)
     tools = {t.name: t for t in make_tools(repo, sandbox)}
     supervisor_llm = model.with_structured_output(Decision)
@@ -200,4 +202,4 @@ def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True
     graph.add_conditional_edges("review", route_after_review, ["supervisor", END])
     # Der Checkpointer speichert den Zustand nach jedem Schritt. Nur so kann der Graph
     # beim interrupt pausieren und später an derselben Stelle weiterlaufen.
-    return graph.compile(checkpointer=InMemorySaver())
+    return graph.compile(checkpointer=checkpointer or InMemorySaver())

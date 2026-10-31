@@ -11,6 +11,7 @@ from pathlib import Path
 
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -40,7 +41,7 @@ class State(MessagesState):
     steps: int
 
 
-def build_graph(repo: Path, sandbox: bool = True):
+def build_graph(repo: Path, sandbox: bool = True, checkpointer: BaseCheckpointSaver | None = None):
     tools = make_tools(repo, sandbox)
     llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0).bind_tools(tools)
 
@@ -62,4 +63,4 @@ def build_graph(repo: Path, sandbox: bool = True):
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route_after_agent, ["tools", END])
     graph.add_edge("tools", "agent")
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

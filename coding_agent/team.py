@@ -1,12 +1,16 @@
-"""Coding-Agent (Phase 2b): Supervisor mit Fach-Agenten.
+"""Coding-Agent: Supervisor mit Fach-Agenten und menschlicher Freigabe.
 
 Ablauf:
-    supervisor -> explorer | developer | tester -> supervisor -> ... -> END
+    supervisor -> explorer | developer | tester -> supervisor -> ... -> review -> END
+                                                                         |
+                                     Feedback des Menschen -> supervisor <+
 
 Der Supervisor ist ein eigener LangGraph-Knoten. Er entscheidet per strukturierter
 Ausgabe, welcher Fach-Agent als Nächstes arbeitet und mit welchem Auftrag.
 Die Fach-Agenten sind mit create_agent gebaut und bekommen nur die Werkzeuge,
 die sie für ihre Rolle brauchen (z. B. darf nur der Entwickler Code ändern).
+Im Knoten review pausiert der Graph (interrupt), bis ein Mensch das Ergebnis
+freigibt, verwirft oder Feedback gibt.
 """
 
 import operator
@@ -18,7 +22,9 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 from coding_agent.tools import make_tools
@@ -60,7 +66,10 @@ Die Fach-Agenten sehen nur die Aufgabe und deinen Auftrag, nicht die bisherigen 
 Gib ihnen deshalb alle nötigen Informationen daraus mit (Dateien, Zeilen, Ursachen).
 Typischer Ablauf: explorer -> developer -> tester, bei Fehlern zurück zum developer.
 Wähle finish erst, wenn der tester bestätigt hat, dass alle Tests bestehen,
-oder wenn die Aufgabe nicht lösbar ist. Fasse dann im Feld summary zusammen, was gemacht wurde."""
+oder wenn die Aufgabe nicht lösbar ist. Fasse dann im Feld summary zusammen, was gemacht wurde.
+
+Berichte von "mensch" sind Feedback des Nutzers zu deinem letzten Ergebnis.
+Sie haben Vorrang: Setze das Feedback um und lass danach erneut testen."""
 
 
 class Decision(BaseModel):
@@ -83,6 +92,13 @@ class State(TypedDict, total=False):
     summary: str
     rounds: int
     tests_passed: bool
+    review: Literal["approve", "reject", "feedback"]
+
+
+class ReviewAnswer(TypedDict, total=False):
+    """Antwort des Menschen, mit der der Graph nach dem interrupt fortgesetzt wird."""
+    action: Literal["approve", "reject", "feedback"]
+    feedback: str
 
 
 def format_reports(reports: list[Report]) -> str:
@@ -106,7 +122,7 @@ def last_test_result(messages: list) -> bool | None:
     return passed
 
 
-def build_team_graph(repo: Path, sandbox: bool = True):
+def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True):
     model = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0)
     tools = {t.name: t for t in make_tools(repo, sandbox)}
     supervisor_llm = model.with_structured_output(Decision)
@@ -152,15 +168,36 @@ def build_team_graph(repo: Path, sandbox: bool = True):
 
         return worker
 
+    def review(state: State) -> State:
+        # Der Graph pausiert hier. Fortgesetzt wird mit Command(resume=ReviewAnswer).
+        answer: ReviewAnswer = interrupt({"summary": state.get("summary", ""),
+                                          "tests_passed": state.get("tests_passed")})
+        if answer["action"] != "feedback":
+            return {"review": answer["action"]}
+        return {
+            "review": "feedback",
+            "rounds": 0,  # neues Rundenbudget für die Nacharbeit
+            "reports": [{"agent": "mensch", "instruction": "Prüfung des Ergebnisses", "result": answer["feedback"]}],
+        }
+
     def route_after_supervisor(state: State) -> str:
-        return END if state["next"] == "finish" else state["next"]
+        if state["next"] == "finish":
+            return "review" if human_review else END
+        return state["next"]
+
+    def route_after_review(state: State) -> str:
+        return "supervisor" if state["review"] == "feedback" else END
 
     graph = StateGraph(State)
     graph.add_node("supervisor", supervisor)
     for name, (tool_names, prompt) in SPECIALISTS.items():
         graph.add_node(name, make_worker(name, tool_names, prompt))
         graph.add_edge(name, "supervisor")
+    graph.add_node("review", review)
 
     graph.add_edge(START, "supervisor")
-    graph.add_conditional_edges("supervisor", route_after_supervisor, [*SPECIALISTS, END])
-    return graph.compile()
+    graph.add_conditional_edges("supervisor", route_after_supervisor, [*SPECIALISTS, "review", END])
+    graph.add_conditional_edges("review", route_after_review, ["supervisor", END])
+    # Der Checkpointer speichert den Zustand nach jedem Schritt. Nur so kann der Graph
+    # beim interrupt pausieren und später an derselben Stelle weiterlaufen.
+    return graph.compile(checkpointer=InMemorySaver())

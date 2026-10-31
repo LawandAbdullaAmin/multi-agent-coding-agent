@@ -26,6 +26,20 @@ Die **Fach-Agenten** sind mit `create_agent` gebaut und bekommen nur die Werkzeu
 Ob die Tests am Ende bestehen, entscheidet nicht das Modell, sondern das tatsächliche Ergebnis
 des letzten Testlaufs (`tests_passed`).
 
+**Human-in-the-loop:** Wenn der Supervisor fertig ist, pausiert der Graph im Knoten `review`
+(`interrupt`, Zustand gesichert durch einen Checkpointer). Der Mensch sieht den Diff und kann
+
+- **freigeben**: Die Änderungen werden aus der Arbeitskopie ins Repository übernommen,
+- **verwerfen**: Das Repository bleibt unverändert,
+- **Feedback geben**: Der Graph läuft mit dem Feedback weiter zum Supervisor, das Team arbeitet nach
+  und legt das Ergebnis erneut zur Freigabe vor.
+
+```
+supervisor --(finish)--> review --(freigeben / verwerfen)--> END
+    ^                       |
+    +------(Feedback)-------+
+```
+
 ### Single-Modus: ein Agent (ReAct-Schleife)
 
 ```
@@ -64,6 +78,7 @@ pip install -r requirements.txt
 python -m coding_agent --repo examples/calculator
 python -m coding_agent --repo examples/calculator --mode single
 python -m coding_agent --repo <pfad> "Eigene Aufgabe"
+python -m coding_agent --repo <pfad> --auto-approve   # ohne Freigabe, z. B. für Evaluationen
 ```
 
 Docker Desktop muss laufen. Das Sandbox-Image wird beim ersten Start automatisch gebaut.
@@ -80,5 +95,6 @@ python -m pytest tests
 - [x] Phase 1: Einzelner Agent mit Werkzeugen (ReAct-Schleife)
 - [x] Phase 2a: Docker-Sandbox für die Code-Ausführung
 - [x] Phase 2b: Mehrere Agenten mit Supervisor
-- [ ] Phase 3: Human-in-the-loop, Checkpointing, LangSmith-Tracing
+- [x] Phase 3a: Human-in-the-loop (Freigabe, Verwerfen, Feedback-Schleife)
+- [ ] Phase 3b: Persistentes Checkpointing (Läufe später fortsetzen), LangSmith-Tracing
 - [ ] Phase 4: Evaluation auf SWE-bench Lite

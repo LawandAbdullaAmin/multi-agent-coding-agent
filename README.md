@@ -8,23 +8,38 @@ findet die Fehlerursache, ändert den Code und prüft seine Änderung, bis alle 
 ### Team-Modus (Standard): Supervisor mit Fach-Agenten
 
 ```
-                 +--> explorer  --+
-START -> supervisor --> developer --+--> supervisor --> ... --> END
-                 +--> tester    --+
+                       +--> explorer     --+
+                       +--> test_writer  --+
+START -> supervisor ---+--> developer    --+--> supervisor --> ... --> review --> END
+                       +--> tester       --+
+                       +--> reviewer     --+
 ```
 
 Der **Supervisor** ist ein eigener LangGraph-Knoten. Er liest die Berichte der Fach-Agenten und
 entscheidet per strukturierter Ausgabe, wer als Nächstes arbeitet und mit welchem Auftrag.
+Typischer Ablauf: explorer → test_writer → developer → tester → reviewer.
 Die **Fach-Agenten** sind mit `create_agent` gebaut und bekommen nur die Werkzeuge ihrer Rolle:
 
-| Agent | Werkzeuge | Rolle |
-|---|---|---|
-| explorer | `list_files`, `read_file`, `search_code` | Code untersuchen, Fehlerursachen finden |
-| developer | `read_file`, `search_code`, `edit_file`, `write_file` | Code ändern |
-| tester | `run_tests`, `read_file` | Tests ausführen und berichten |
+| Agent | Modell | Werkzeuge | Darf schreiben | Rolle |
+|---|---|---|---|---|
+| explorer | günstig | `list_files`, `read_file`, `search_code` | nichts | Fehlerursachen und nicht erfüllte Docstrings finden |
+| test_writer | stark | Lesen, `write_file`, `edit_file`, `run_tests` | nur **neue** Testdateien | Tests aus Aufgabe und Docstrings ableiten, jeder Test mit Zitat als Beleg |
+| developer | günstig → stark | `read_file`, `search_code`, `edit_file`, `write_file` | nur Produktivcode | Code ändern |
+| tester | günstig | `run_tests`, `read_file` | nichts | alle Tests ausführen |
+| reviewer | stark | Lesen, `show_changes`, `run_tests` | nichts | Änderungen gegen die Anforderung prüfen, strukturiertes Urteil (freigegeben + Lücken) |
 
-Ob die Tests am Ende bestehen, entscheidet nicht das Modell, sondern das tatsächliche Ergebnis
-des letzten Testlaufs (`tests_passed`).
+**Im Code durchgesetzt, nicht nur im Prompt:**
+
+- **Schreibrechte pro Rolle:** Ein unerlaubter Schreibversuch wird vom Werkzeug abgelehnt, der Agent
+  bekommt eine Fehlermeldung und kann es anders versuchen. Bestehende Tests kann niemand verändern.
+- **Abschluss nur nach Verifikation:** Will der Supervisor abschließen, obwohl der letzte vollständige
+  Testlauf nicht grün ist oder der Reviewer nicht freigegeben hat, leitet der Code automatisch zum
+  Tester bzw. Reviewer um. Jede Codeänderung macht eine Freigabe ungültig.
+- **Testergebnis aus Fakten:** Ob die Tests bestehen, entscheidet nicht das Modell, sondern der
+  tatsächliche Exit-Code des letzten Laufs über *alle* Tests. Teilläufe zählen nicht als bestanden.
+- **Modell nach Bedarf:** Urteilende Rollen nutzen das starke Modell (`OPENAI_STRONG_MODEL`, Standard
+  `gpt-4.1`), Routinerollen das günstige (`OPENAI_MODEL`, Standard `gpt-4.1-mini`). Der Entwickler
+  startet günstig und wechselt automatisch zum starken Modell, sobald er nachbessern muss.
 
 **Human-in-the-loop:** Wenn der Supervisor fertig ist, pausiert der Graph im Knoten `review`
 (`interrupt`, Zustand gesichert durch einen Checkpointer). Der Mensch sieht den Diff und kann
@@ -64,11 +79,14 @@ START -> agent --(Werkzeugaufrufe)--> tools
 | `edit_file` | Gezielte, eindeutige Textersetzung |
 | `write_file` | Neue Datei anlegen |
 | `run_tests` | `pytest` in der Docker-Sandbox ausführen (mit Zeitlimit) |
+| `show_changes` | Alle Änderungen gegenüber dem Ausgangsstand als Diff |
 
 ## Sicherheit
 
 - Alle Werkzeuge sind auf den Repository-Ordner beschränkt.
 - Parallele Dateiänderungen sind durch eine Sperre geschützt (keine verlorenen Änderungen).
+- Text mit Steuerzeichen wird nicht geschrieben. Kleine Modelle verstümmeln Sonderzeichen wie `€`
+  gelegentlich zu `\x00` und hatten so schon eine Quelldatei zerstört.
 - Der Agent arbeitet auf einer Kopie unter `workspaces/` und zeigt am Ende einen Diff.
 - Vom Agenten geschriebener Code läuft nur in einem Docker-Container ([sandbox/Dockerfile](sandbox/Dockerfile)):
   kein Netzwerk, schreibgeschütztes Dateisystem, eigener Nutzer ohne Root-Rechte,
@@ -108,23 +126,34 @@ Fehler in einer anderen als der getesteten Datei bis zu einer Feature-Anfrage im
 python -m coding_agent.evaluate --repeats 3
 ```
 
-**Ergebnis** (`gpt-4.1-mini`, 10 Aufgaben × 3 Wiederholungen, [Bericht](benchmark/results/20261031-153014.md)):
+**Ergebnisse** (10 Aufgaben × 3 Wiederholungen, Berichte in [benchmark/results/](benchmark/results/)):
 
-| Modus | Gelöst | Ø Dauer | Ø Tokens | Ø Kosten pro Aufgabe |
+| Version | Gelöst | Ø Dauer | Ø Tokens | Ø Kosten pro Aufgabe |
 |---|---|---|---|---|
-| Team (Supervisor + 3 Fach-Agenten) | **25/30 (83 %)** | 33 s | 22.293 | $0,0125 |
-| Einzel-Agent | 23/30 (77 %) | 15 s | 21.786 | $0,0100 |
+| Einzel-Agent (`gpt-4.1-mini`) | 23/30 (77 %) | 15 s | 21.786 | $0,010 |
+| Team v1: explorer, developer, tester (`gpt-4.1-mini`) | 25/30 (83 %) | 33 s | 22.293 | $0,013 |
+| Team v2: + test_writer, reviewer, Guardrails (`gpt-4.1-mini`) | 23/30 (77 %) | 67 s | 62.730 | $0,032 |
+| Team v3: + Belegpflicht für Tests, Schutz vor Steuerzeichen (`gpt-4.1-mini`) | 25/30 (83 %) | 48 s | 39.549 | $0,020 |
+| **Team v4: + Modell nach Bedarf (`gpt-4.1-mini` / `gpt-4.1`)** | **30/30 (100 %)** | 42 s | 33.916 | $0,066 |
 
-Beobachtungen:
+Was die Iterationen gezeigt haben:
 
-- Das Team löst etwas mehr Aufgaben, braucht aber gut doppelt so lange und kostet rund 25 % mehr.
-  Bei 30 Läufen pro Modus ist der Unterschied von 2 Aufgaben noch kein belastbarer Beleg.
-- Das Team ist **zuverlässiger**: Bei leichten und mittleren Aufgaben löst es jede in 3 von 3 Läufen,
-  der Einzel-Agent scheitert dort gelegentlich (bank_account, roman, shopping_cart).
-- **Gemeinsamer Schwachpunkt:** Bei `leap_year` beheben beide Modi den getesteten Fehler, übersehen aber
-  einen zweiten, der nur in der Dokumentation beschrieben ist (0/3). Die Agenten hören auf, sobald die
-  sichtbaren Tests grün sind, statt die Spezifikation vollständig umzusetzen.
-- Die Feature-Anfrage (`duration`) ist für beide Modi die schwierigste lösbare Aufgabe (1/3 bzw. 2/3).
+- **v1:** Beide Varianten hören auf, sobald die sichtbaren Tests grün sind. Bei `leap_year` übersehen sie
+  einen Fehler, der nur im Docstring beschrieben ist (0/3).
+- **v2:** Test-Autor und Reviewer lösen `leap_year` (3/3), aber das kleine Modell **erfindet Anforderungen**
+  (z. B. „Minuten müssen unter 60 liegen“) und baut sie in Tests und Code ein. Insgesamt ein Rückschritt.
+  Außerdem zerstörte ein verstümmeltes `€` eine Quelldatei.
+- **v3:** Belegpflicht (jeder Test mit Zitat aus Aufgabe oder Docstring) und Prüfung erfundener Regeln durch
+  den Reviewer verringern das, beseitigen es mit `gpt-4.1-mini` aber nicht (`duration` 0/3).
+- **v4:** Mit dem starken Modell für Supervisor, Test-Autor, Reviewer und Nachbesserungen löst das Team
+  alle Aufgaben in allen Läufen, bei etwa 6-fachen Kosten gegenüber dem Einzel-Agenten.
+
+**Grenzen dieser Messung:**
+
+- Die Aufgaben sind klein (1–3 Dateien) und für aktuelle Modelle eher leicht. Bei 100 % ist der Benchmark ausgereizt.
+- Ein Kontrollexperiment fehlt noch: Ob ein **Einzel-Agent mit `gpt-4.1`** ebenso gut abschneidet, ist nicht gemessen.
+  Der Vorsprung von v4 lässt sich deshalb noch nicht sicher der Architektur statt dem stärkeren Modell zuschreiben.
+- Die Kosten sind aus Token-Zahlen und Listenpreisen geschätzt, ohne Rabatt für gecachte Eingaben.
 
 ## Tests
 
@@ -141,4 +170,8 @@ python -m pytest tests
 - [x] Phase 3b: Persistentes Checkpointing (Läufe später fortsetzen)
 - [x] Phase 3c: LangSmith-Tracing
 - [x] Phase 4a: Eigener Benchmark mit versteckten Tests, Team gegen Einzel-Agent
-- [ ] Phase 4b: Evaluation auf SWE-bench Lite
+- [x] Phase 5a: Test-Autor, Reviewer, Rollenrechte und Abschluss-Guardrails im Code
+- [x] Phase 5b: Modell nach Bedarf (günstig / stark, Eskalation des Entwicklers)
+- [ ] Weboberfläche
+- [ ] Kontrollexperiment: Einzel-Agent mit starkem Modell
+- [ ] Größere Projekte: Repo-Map, Evaluation auf SWE-bench Lite

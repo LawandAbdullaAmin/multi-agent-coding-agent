@@ -12,7 +12,6 @@ Für jede Aufgabe aus benchmark/tasks/ und jeden Modus:
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import time
@@ -25,7 +24,7 @@ from langchain_core.callbacks import get_usage_metadata_callback
 from langchain_core.messages import HumanMessage
 
 from coding_agent.agent import build_graph
-from coding_agent.team import build_team_graph
+from coding_agent.team import build_team_graph, model_names
 from coding_agent.tools import IGNORED_DIRS, ensure_sandbox_image, iter_files, make_tools
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -210,8 +209,9 @@ def main() -> None:
 
     results.sort(key=lambda r: (r.task, r.mode, r.repeat))
     report = summarize(results, tasks, args.modes)
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-    header = f"# Evaluation {stamp}\n\nModell: `{model}`, Wiederholungen: {args.repeats}\n\n"
+    models = model_names()
+    header = (f"# Evaluation {stamp}\n\nModelle: günstig `{models['fast']}`, stark `{models['strong']}` "
+              f"(nur Team), Wiederholungen: {args.repeats}\n\n")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     (RESULTS_DIR / f"{stamp}.json").write_text(
         json.dumps([asdict(r) for r in results], indent=2, ensure_ascii=False), encoding="utf-8")

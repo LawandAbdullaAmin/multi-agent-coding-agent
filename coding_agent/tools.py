@@ -5,12 +5,14 @@ Pfade, die aus diesem Ordner herausführen, werden abgelehnt.
 Tests laufen standardmäßig in einem isolierten Docker-Container (Sandbox).
 """
 
+import difflib
 import os
 import re
 import subprocess
 import sys
 import threading
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from langchain_core.tools import BaseTool, ToolException, tool
@@ -20,6 +22,9 @@ SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 MAX_OUTPUT_CHARS = 8000
 MAX_SEARCH_HITS = 100
 TEST_TIMEOUT_SECONDS = 120
+
+# Steuerzeichen (außer Tab und Zeilenumbruch) entstehen, wenn das Modell Sonderzeichen wie € verstümmelt.
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 SANDBOX_IMAGE = "coding-agent-sandbox"
 SANDBOX_DIR = Path(__file__).resolve().parent.parent / "sandbox"
@@ -78,11 +83,31 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
+def is_test_file(rel: str) -> bool:
+    """rel: Pfad relativ zum Repository mit / als Trenner."""
+    name = rel.rsplit("/", 1)[-1]
+    return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py" or "/tests/" in f"/{rel}"
+
+
+# Prüft, ob ein Pfad geschrieben werden darf: None = erlaubt, sonst der Grund für die Ablehnung.
+WritePolicy = Callable[[str], str | None]
+
+
+def make_tools(root: Path, sandbox: bool = True, can_write: WritePolicy | None = None) -> list[BaseTool]:
     root = root.resolve()
     # Parallele Werkzeugaufrufe laufen in Threads. Ohne Sperre würden sich gleichzeitige
     # Änderungen an derselben Datei gegenseitig überschreiben (lesen -> ändern -> schreiben).
     write_lock = threading.Lock()
+    # Ausgangsstand des Repositorys, damit show_changes alle bisherigen Änderungen zeigen kann.
+    snapshot = {p.relative_to(root).as_posix(): read_text(p) for p in iter_files(root)}
+
+    def check_writable(file: Path, text: str) -> None:
+        rel = file.relative_to(root).as_posix()
+        if can_write and (reason := can_write(rel)):
+            raise ToolException(f"Fehler: {rel} darf nicht geändert werden. {reason}")
+        if match := CONTROL_CHARS.search(text):
+            raise ToolException(f"Fehler: Der Text enthält das unzulässige Steuerzeichen {match.group()!r}. "
+                                "Nichts wurde geschrieben. Prüfe Sonderzeichen wie € und schreibe den Text erneut.")
 
     @tool
     def list_files(directory: str = ".") -> str:
@@ -126,6 +151,7 @@ def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
     def write_file(path: str, content: str) -> str:
         """Erstellt eine neue Datei (oder überschreibt sie komplett) mit dem angegebenen Inhalt."""
         file = resolve_path(root, path)
+        check_writable(file, content)
         with write_lock:
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(content, encoding="utf-8")
@@ -139,6 +165,7 @@ def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
         ohne die Zeilennummern, die read_file voranstellt.
         """
         file = resolve_path(root, path)
+        check_writable(file, new_text)
         with write_lock:
             if not file.is_file():
                 return f"Fehler: Datei {path} existiert nicht."
@@ -175,7 +202,18 @@ def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
             return f"Fehler: Tests nach {TEST_TIMEOUT_SECONDS} Sekunden abgebrochen."
         return truncate(f"Exit-Code: {result.returncode}\n{result.stdout}{result.stderr}")
 
-    tools = [list_files, read_file, search_code, write_file, edit_file, run_tests]
+    @tool
+    def show_changes() -> str:
+        """Zeigt alle Änderungen gegenüber dem Ausgangsstand des Repositorys als Diff."""
+        diffs = []
+        for file in iter_files(root):
+            rel = file.relative_to(root).as_posix()
+            old = snapshot.get(rel, "").splitlines(keepends=True)
+            new = read_text(file).splitlines(keepends=True)
+            diffs.extend(difflib.unified_diff(old, new, f"a/{rel}", f"b/{rel}"))
+        return truncate("".join(diffs) or "Keine Änderungen.")
+
+    tools = [list_files, read_file, search_code, write_file, edit_file, run_tests, show_changes]
     # ToolException wird als Nachricht an den Agenten zurückgegeben, statt den Lauf abzubrechen.
     for t in tools:
         t.handle_tool_error = True

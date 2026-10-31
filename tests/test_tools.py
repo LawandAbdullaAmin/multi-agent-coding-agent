@@ -37,6 +37,32 @@ def test_parallel_edits_on_same_file_are_not_lost(tmp_path):
     assert content == "".join(f"value_{i} = -{i}\n" for i in range(20))
 
 
+def test_write_policy_blocks_writes(tmp_path):
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    tools = {t.name: t for t in make_tools(tmp_path, sandbox=False, can_write=lambda rel: "Nur lesen.")}
+    assert "darf nicht geändert werden. Nur lesen." in tools["edit_file"].invoke(
+        {"path": "app.py", "old_text": "x = 1", "new_text": "x = 2"})
+    assert "darf nicht" in tools["write_file"].invoke({"path": "neu.py", "content": "y = 1"})
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "x = 1\n"
+    assert not (tmp_path / "neu.py").exists()
+
+
+def test_control_characters_are_rejected(tools, tmp_path):
+    result = tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = '10,05 \x1e'"})
+    assert "Steuerzeichen" in result
+    assert "Steuerzeichen" in tools["write_file"].invoke({"path": "neu.py", "content": "x = 1\x00"})
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "x = 1\ny = 2\nx = 1\n"
+    assert "geändert" in tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = '5 €'\t"})
+
+
+def test_show_changes_lists_edits_and_new_files(tools):
+    assert tools["show_changes"].invoke({}) == "Keine Änderungen."
+    tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = 5"})
+    tools["write_file"].invoke({"path": "neu.py", "content": "z = 1\n"})
+    changes = tools["show_changes"].invoke({})
+    assert "-y = 2" in changes and "+y = 5" in changes and "+z = 1" in changes
+
+
 def test_search_code_finds_matches(tools):
     assert tools["search_code"].invoke({"pattern": r"y = \d"}) == "app.py:2: y = 2"
 

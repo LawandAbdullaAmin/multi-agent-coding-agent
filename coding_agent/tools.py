@@ -9,10 +9,11 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool, ToolException, tool
 
 IGNORED_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", "node_modules"}
 SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
@@ -55,7 +56,7 @@ def sandbox_command(root: Path, name: str, args: list[str]) -> list[str]:
 def resolve_path(root: Path, path: str) -> Path:
     full = (root / path).resolve()
     if not full.is_relative_to(root):
-        raise ValueError(f"Pfad liegt außerhalb des Repositorys: {path}")
+        raise ToolException(f"Fehler: Pfad liegt außerhalb des Repositorys: {path}")
     return full
 
 
@@ -79,6 +80,9 @@ def read_text(path: Path) -> str:
 
 def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
     root = root.resolve()
+    # Parallele Werkzeugaufrufe laufen in Threads. Ohne Sperre würden sich gleichzeitige
+    # Änderungen an derselben Datei gegenseitig überschreiben (lesen -> ändern -> schreiben).
+    write_lock = threading.Lock()
 
     @tool
     def list_files(directory: str = ".") -> str:
@@ -122,26 +126,30 @@ def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
     def write_file(path: str, content: str) -> str:
         """Erstellt eine neue Datei (oder überschreibt sie komplett) mit dem angegebenen Inhalt."""
         file = resolve_path(root, path)
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(content, encoding="utf-8")
+        with write_lock:
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(content, encoding="utf-8")
         return f"{path} geschrieben ({len(content.splitlines())} Zeilen)."
 
     @tool
     def edit_file(path: str, old_text: str, new_text: str) -> str:
         """Ersetzt in einer Datei genau eine Stelle old_text durch new_text.
 
-        old_text muss exakt (inkl. Einrückung) und eindeutig in der Datei vorkommen.
+        old_text muss exakt (inkl. Einrückung) und eindeutig in der Datei vorkommen,
+        ohne die Zeilennummern, die read_file voranstellt.
         """
         file = resolve_path(root, path)
-        if not file.is_file():
-            return f"Fehler: Datei {path} existiert nicht."
-        content = read_text(file)
-        count = content.count(old_text)
-        if count == 0:
-            return "Fehler: old_text wurde nicht gefunden. Lies die Datei erneut und kopiere den Text exakt."
-        if count > 1:
-            return f"Fehler: old_text kommt {count}-mal vor. Nimm mehr umgebende Zeilen dazu, damit er eindeutig ist."
-        file.write_text(content.replace(old_text, new_text), encoding="utf-8")
+        with write_lock:
+            if not file.is_file():
+                return f"Fehler: Datei {path} existiert nicht."
+            content = read_text(file)
+            count = content.count(old_text)
+            if count == 0:
+                return ("Fehler: old_text wurde nicht gefunden. Lies die Datei erneut und kopiere den Text exakt, "
+                        "aber ohne die Zeilennummern am Zeilenanfang.")
+            if count > 1:
+                return f"Fehler: old_text kommt {count}-mal vor. Nimm mehr umgebende Zeilen dazu, damit er eindeutig ist."
+            file.write_text(content.replace(old_text, new_text), encoding="utf-8")
         return f"{path} geändert."
 
     @tool
@@ -167,4 +175,8 @@ def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
             return f"Fehler: Tests nach {TEST_TIMEOUT_SECONDS} Sekunden abgebrochen."
         return truncate(f"Exit-Code: {result.returncode}\n{result.stdout}{result.stderr}")
 
-    return [list_files, read_file, search_code, write_file, edit_file, run_tests]
+    tools = [list_files, read_file, search_code, write_file, edit_file, run_tests]
+    # ToolException wird als Nachricht an den Agenten zurückgegeben, statt den Lauf abzubrechen.
+    for t in tools:
+        t.handle_tool_error = True
+    return tools

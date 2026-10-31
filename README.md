@@ -3,7 +3,30 @@
 Ein autonomer Coding-Agent mit LangGraph. Er erkundet ein Repository, führt die Tests aus,
 findet die Fehlerursache, ändert den Code und prüft seine Änderung, bis alle Tests grün sind.
 
-## Architektur (Phase 1)
+## Architektur
+
+### Team-Modus (Standard): Supervisor mit Fach-Agenten
+
+```
+                 +--> explorer  --+
+START -> supervisor --> developer --+--> supervisor --> ... --> END
+                 +--> tester    --+
+```
+
+Der **Supervisor** ist ein eigener LangGraph-Knoten. Er liest die Berichte der Fach-Agenten und
+entscheidet per strukturierter Ausgabe, wer als Nächstes arbeitet und mit welchem Auftrag.
+Die **Fach-Agenten** sind mit `create_agent` gebaut und bekommen nur die Werkzeuge ihrer Rolle:
+
+| Agent | Werkzeuge | Rolle |
+|---|---|---|
+| explorer | `list_files`, `read_file`, `search_code` | Code untersuchen, Fehlerursachen finden |
+| developer | `read_file`, `search_code`, `edit_file`, `write_file` | Code ändern |
+| tester | `run_tests`, `read_file` | Tests ausführen und berichten |
+
+Ob die Tests am Ende bestehen, entscheidet nicht das Modell, sondern das tatsächliche Ergebnis
+des letzten Testlaufs (`tests_passed`).
+
+### Single-Modus: ein Agent (ReAct-Schleife)
 
 ```
 START -> agent --(Werkzeugaufrufe)--> tools
@@ -11,6 +34,8 @@ START -> agent --(Werkzeugaufrufe)--> tools
            +----------------------------+
          agent --(fertig / Schrittlimit)--> END
 ```
+
+### Werkzeuge
 
 | Werkzeug | Zweck |
 |---|---|
@@ -24,6 +49,7 @@ START -> agent --(Werkzeugaufrufe)--> tools
 ## Sicherheit
 
 - Alle Werkzeuge sind auf den Repository-Ordner beschränkt.
+- Parallele Dateiänderungen sind durch eine Sperre geschützt (keine verlorenen Änderungen).
 - Der Agent arbeitet auf einer Kopie unter `workspaces/` und zeigt am Ende einen Diff.
 - Vom Agenten geschriebener Code läuft nur in einem Docker-Container ([sandbox/Dockerfile](sandbox/Dockerfile)):
   kein Netzwerk, schreibgeschütztes Dateisystem, eigener Nutzer ohne Root-Rechte,
@@ -36,6 +62,7 @@ START -> agent --(Werkzeugaufrufe)--> tools
 pip install -r requirements.txt
 
 python -m coding_agent --repo examples/calculator
+python -m coding_agent --repo examples/calculator --mode single
 python -m coding_agent --repo <pfad> "Eigene Aufgabe"
 ```
 
@@ -52,6 +79,6 @@ python -m pytest tests
 
 - [x] Phase 1: Einzelner Agent mit Werkzeugen (ReAct-Schleife)
 - [x] Phase 2a: Docker-Sandbox für die Code-Ausführung
-- [ ] Phase 2b: Mehrere Agenten mit Supervisor
+- [x] Phase 2b: Mehrere Agenten mit Supervisor
 - [ ] Phase 3: Human-in-the-loop, Checkpointing, LangSmith-Tracing
 - [ ] Phase 4: Evaluation auf SWE-bench Lite

@@ -1,8 +1,9 @@
 """Kommandozeile: python -m coding_agent --repo <ordner> "<aufgabe>"
 
-Standardmäßig arbeitet der Agent auf einer Kopie des Repositorys im Ordner
-workspaces/ und zeigt am Ende die Änderungen als Diff. Mit --in-place
-ändert er das Repository direkt.
+Standardmäßig arbeitet das Team (Supervisor mit Fach-Agenten) auf einer Kopie
+des Repositorys im Ordner workspaces/ und zeigt am Ende die Änderungen als Diff.
+Mit --mode single läuft stattdessen der einzelne Agent aus Phase 1,
+mit --in-place wird das Repository direkt geändert.
 """
 
 import argparse
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from coding_agent.agent import MAX_STEPS, build_graph
+from coding_agent.team import build_team_graph
 from coding_agent.tools import IGNORED_DIRS, ensure_sandbox_image, iter_files, read_text
 
 WORKSPACES_DIR = Path(__file__).resolve().parent.parent / "workspaces"
@@ -47,7 +49,7 @@ def show_diff(original: Path, workspace: Path) -> None:
 
 
 def print_update(update: dict) -> None:
-    for message in update.get("messages", []):
+    for message in update.get("messages") or []:
         if isinstance(message, AIMessage):
             if message.content:
                 print(f"\n[Agent] {message.content}")
@@ -66,6 +68,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Autonomer Coding-Agent mit LangGraph")
     parser.add_argument("task", nargs="?", default=DEFAULT_TASK, help="Aufgabe für den Agenten")
     parser.add_argument("--repo", type=Path, required=True, help="Ordner des Repositorys")
+    parser.add_argument("--mode", choices=["team", "single"], default="team",
+                        help="team: Supervisor mit Fach-Agenten, single: ein einzelner Agent")
     parser.add_argument("--in-place", action="store_true", help="Repository direkt ändern statt einer Kopie")
     parser.add_argument("--no-sandbox", action="store_true", help="Tests lokal statt im Docker-Container ausführen")
     args = parser.parse_args()
@@ -79,20 +83,38 @@ def main() -> None:
 
     repo = args.repo.resolve()
     workspace = prepare_workspace(repo, args.in_place)
-    print(f"Aufgabe:   {args.task}\nWorkspace: {workspace}\nSandbox:   {'Docker' if sandbox else 'aus (lokal)'}")
+    print(f"Aufgabe:   {args.task}\nWorkspace: {workspace}\n"
+          f"Modus:     {args.mode}\nSandbox:   {'Docker' if sandbox else 'aus (lokal)'}")
 
-    app = build_graph(workspace, sandbox)
+    if args.mode == "team":
+        app = build_team_graph(workspace, sandbox)
+        inputs = {"task": args.task}
+    else:
+        app = build_graph(workspace, sandbox)
+        inputs = {"messages": [HumanMessage(args.task)], "steps": 0}
+
     state = {}
-    for chunk in app.stream(
-        {"messages": [HumanMessage(args.task)], "steps": 0},
-        {"recursion_limit": 2 * MAX_STEPS + 5},
-        stream_mode="updates",
+    # subgraphs=True: auch die Schritte innerhalb der Fach-Agenten live anzeigen
+    for namespace, chunk in app.stream(
+        # Die eigentlichen Limits sind MAX_STEPS, MAX_ROUNDS und WORKER_MODEL_CALLS.
+        # recursion_limit ist nur ein Sicherheitsnetz von LangGraph.
+        inputs, {"recursion_limit": 200}, stream_mode="updates", subgraphs=True,
     ):
         for node, update in chunk.items():
-            print_update(update)
-            state.update(update)
+            if not isinstance(update, dict):
+                continue
+            if node == "supervisor":
+                target = update["next"]
+                print(f"\n[Supervisor] -> {target}" + (f": {update['instruction']}" if target != "finish" else ""))
+            else:
+                print_update(update)
+            if not namespace:
+                state.update(update)
 
-    if state.get("steps", 0) >= MAX_STEPS:
+    if args.mode == "team":
+        passed = {True: "ja", False: "nein"}.get(state.get("tests_passed"), "unbekannt")
+        print(f"\n=== Ergebnis ===\n{state.get('summary', '')}\nTests bestanden: {passed}")
+    elif state.get("steps", 0) >= MAX_STEPS:
         print(f"\nAbgebrochen: Schrittlimit ({MAX_STEPS}) erreicht.")
     if not args.in_place:
         print("\n=== Änderungen ===")

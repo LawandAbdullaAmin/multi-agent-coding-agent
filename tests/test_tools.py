@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from coding_agent.tools import docker_available, ensure_sandbox_image, make_tools
@@ -14,14 +16,25 @@ def test_read_file_shows_line_numbers(tools):
 
 
 def test_path_outside_repo_is_rejected(tools):
-    with pytest.raises(ValueError, match="außerhalb"):
-        tools["read_file"].invoke({"path": "../secret.txt"})
+    assert "außerhalb" in tools["read_file"].invoke({"path": "../secret.txt"})
 
 
 def test_edit_file_requires_unique_match(tools, tmp_path):
     assert "2-mal" in tools["edit_file"].invoke({"path": "app.py", "old_text": "x = 1", "new_text": "x = 3"})
     assert tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = 5"}) == "app.py geändert."
     assert (tmp_path / "app.py").read_text(encoding="utf-8") == "x = 1\ny = 5\nx = 1\n"
+
+
+def test_parallel_edits_on_same_file_are_not_lost(tmp_path):
+    lines = [f"value_{i} = {i}" for i in range(20)]
+    (tmp_path / "many.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    edit = {t.name: t for t in make_tools(tmp_path, sandbox=False)}["edit_file"]
+    edits = [{"path": "many.py", "old_text": f"value_{i} = {i}\n", "new_text": f"value_{i} = -{i}\n"}
+             for i in range(20)]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(edit.invoke, edits))
+    content = (tmp_path / "many.py").read_text(encoding="utf-8")
+    assert content == "".join(f"value_{i} = -{i}\n" for i in range(20))
 
 
 def test_search_code_finds_matches(tools):

@@ -19,10 +19,15 @@ START -> agent --(Werkzeugaufrufe)--> tools
 | `search_code` | Regex-Suche im Code |
 | `edit_file` | Gezielte, eindeutige Textersetzung |
 | `write_file` | Neue Datei anlegen |
-| `run_tests` | `pytest` ausführen (mit Zeitlimit, ohne API-Schlüssel in der Umgebung) |
+| `run_tests` | `pytest` in der Docker-Sandbox ausführen (mit Zeitlimit) |
 
-Sicherheit: Alle Werkzeuge sind auf den Repository-Ordner beschränkt. Standardmäßig arbeitet
-der Agent auf einer Kopie unter `workspaces/` und zeigt am Ende einen Diff.
+## Sicherheit
+
+- Alle Werkzeuge sind auf den Repository-Ordner beschränkt.
+- Der Agent arbeitet auf einer Kopie unter `workspaces/` und zeigt am Ende einen Diff.
+- Vom Agenten geschriebener Code läuft nur in einem Docker-Container ([sandbox/Dockerfile](sandbox/Dockerfile)):
+  kein Netzwerk, schreibgeschütztes Dateisystem, eigener Nutzer ohne Root-Rechte,
+  Limits für RAM (512 MB), CPU und Prozesse, keine API-Schlüssel in der Umgebung.
 
 ## Starten
 
@@ -34,6 +39,9 @@ python -m coding_agent --repo examples/calculator
 python -m coding_agent --repo <pfad> "Eigene Aufgabe"
 ```
 
+Docker Desktop muss laufen. Das Sandbox-Image wird beim ersten Start automatisch gebaut.
+Ohne Docker: `--no-sandbox` (Tests laufen dann lokal, nur für vertrauenswürdigen Code).
+
 ## Tests
 
 ```
@@ -43,6 +51,7 @@ python -m pytest tests
 ## Roadmap
 
 - [x] Phase 1: Einzelner Agent mit Werkzeugen (ReAct-Schleife)
-- [ ] Phase 2: Mehrere Agenten mit Supervisor, Docker-Sandbox
+- [x] Phase 2a: Docker-Sandbox für die Code-Ausführung
+- [ ] Phase 2b: Mehrere Agenten mit Supervisor
 - [ ] Phase 3: Human-in-the-loop, Checkpointing, LangSmith-Tracing
 - [ ] Phase 4: Evaluation auf SWE-bench Lite

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from coding_agent.agent import MAX_STEPS, build_graph
-from coding_agent.tools import IGNORED_DIRS, iter_files, read_text
+from coding_agent.tools import IGNORED_DIRS, ensure_sandbox_image, iter_files, read_text
 
 WORKSPACES_DIR = Path(__file__).resolve().parent.parent / "workspaces"
 DEFAULT_TASK = "Finde und behebe die Fehler, sodass alle Tests erfolgreich durchlaufen."
@@ -67,13 +67,21 @@ def main() -> None:
     parser.add_argument("task", nargs="?", default=DEFAULT_TASK, help="Aufgabe für den Agenten")
     parser.add_argument("--repo", type=Path, required=True, help="Ordner des Repositorys")
     parser.add_argument("--in-place", action="store_true", help="Repository direkt ändern statt einer Kopie")
+    parser.add_argument("--no-sandbox", action="store_true", help="Tests lokal statt im Docker-Container ausführen")
     args = parser.parse_args()
+
+    sandbox = not args.no_sandbox
+    if sandbox:
+        try:
+            ensure_sandbox_image()
+        except RuntimeError as e:
+            sys.exit(f"Fehler: {e}")
 
     repo = args.repo.resolve()
     workspace = prepare_workspace(repo, args.in_place)
-    print(f"Aufgabe:   {args.task}\nWorkspace: {workspace}")
+    print(f"Aufgabe:   {args.task}\nWorkspace: {workspace}\nSandbox:   {'Docker' if sandbox else 'aus (lokal)'}")
 
-    app = build_graph(workspace)
+    app = build_graph(workspace, sandbox)
     state = {}
     for chunk in app.stream(
         {"messages": [HumanMessage(args.task)], "steps": 0},

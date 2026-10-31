@@ -1,12 +1,12 @@
 import pytest
 
-from coding_agent.tools import make_tools
+from coding_agent.tools import docker_available, ensure_sandbox_image, make_tools
 
 
 @pytest.fixture
 def tools(tmp_path):
     (tmp_path / "app.py").write_text("x = 1\ny = 2\nx = 1\n", encoding="utf-8")
-    return {t.name: t for t in make_tools(tmp_path)}
+    return {t.name: t for t in make_tools(tmp_path, sandbox=False)}
 
 
 def test_read_file_shows_line_numbers(tools):
@@ -31,3 +31,21 @@ def test_search_code_finds_matches(tools):
 def test_run_tests_reports_exit_code(tools, tmp_path):
     (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
     assert tools["run_tests"].invoke({}).startswith("Exit-Code: 0")
+
+
+@pytest.mark.skipif(not docker_available(), reason="Docker läuft nicht")
+def test_sandbox_has_no_network_and_readonly_repo(tmp_path):
+    ensure_sandbox_image()
+    (tmp_path / "test_sandbox.py").write_text(
+        "import pathlib, socket, pytest\n"
+        "def test_no_network():\n"
+        "    with pytest.raises(OSError):\n"
+        "        socket.create_connection(('pypi.org', 443), timeout=3)\n"
+        "def test_repo_is_readonly():\n"
+        "    with pytest.raises(OSError):\n"
+        "        pathlib.Path('hacked.txt').write_text('x')\n",
+        encoding="utf-8",
+    )
+    run_tests = {t.name: t for t in make_tools(tmp_path)}["run_tests"]
+    assert run_tests.invoke({}).startswith("Exit-Code: 0")
+    assert not (tmp_path / "hacked.txt").exists()

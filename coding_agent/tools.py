@@ -2,12 +2,14 @@
 
 Alle Werkzeuge arbeiten nur innerhalb eines Repository-Ordners (root).
 Pfade, die aus diesem Ordner herausführen, werden abgelehnt.
+Tests laufen standardmäßig in einem isolierten Docker-Container (Sandbox).
 """
 
 import os
 import re
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 from langchain_core.tools import BaseTool, tool
@@ -17,6 +19,37 @@ SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 MAX_OUTPUT_CHARS = 8000
 MAX_SEARCH_HITS = 100
 TEST_TIMEOUT_SECONDS = 120
+
+SANDBOX_IMAGE = "coding-agent-sandbox"
+SANDBOX_DIR = Path(__file__).resolve().parent.parent / "sandbox"
+
+
+def docker_available() -> bool:
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def ensure_sandbox_image() -> None:
+    """Baut das Sandbox-Image, falls es noch nicht existiert."""
+    if not docker_available():
+        raise RuntimeError("Docker ist nicht erreichbar. Starte Docker Desktop oder nutze --no-sandbox.")
+    if subprocess.run(["docker", "image", "inspect", SANDBOX_IMAGE], capture_output=True).returncode != 0:
+        print(f"Baue Sandbox-Image '{SANDBOX_IMAGE}' (einmalig) ...")
+        subprocess.run(["docker", "build", "-q", "-t", SANDBOX_IMAGE, str(SANDBOX_DIR)], check=True)
+
+
+def sandbox_command(root: Path, name: str, args: list[str]) -> list[str]:
+    return [
+        "docker", "run", "--rm", "--name", name,
+        "--network", "none",                     # kein Internet
+        "--memory", "512m", "--cpus", "1", "--pids-limit", "256",
+        "--read-only", "--tmpfs", "/tmp",        # Dateisystem schreibgeschützt, nur /tmp beschreibbar
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "--mount", f"type=bind,source={root},target=/repo,readonly",
+        SANDBOX_IMAGE, "python", *args,
+    ]
 
 
 def resolve_path(root: Path, path: str) -> Path:
@@ -44,7 +77,7 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def make_tools(root: Path) -> list[BaseTool]:
+def make_tools(root: Path, sandbox: bool = True) -> list[BaseTool]:
     root = root.resolve()
 
     @tool
@@ -114,19 +147,23 @@ def make_tools(root: Path) -> list[BaseTool]:
     @tool
     def run_tests(target: str = "") -> str:
         """Führt die Tests mit pytest aus. Optional nur eine Datei oder einen Test (z. B. 'test_x.py::test_y')."""
-        cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+        args = ["-m", "pytest", "-q", "-p", "no:cacheprovider"]
         if target:
             resolve_path(root, target.split("::")[0])
-            cmd.append(target)
+            args.append(target)
         # Geheimnisse wie OPENAI_API_KEY nicht an den ausgeführten Code weitergeben.
         env = {k: v for k, v in os.environ.items() if not any(m in k.upper() for m in SECRET_MARKERS)}
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        name = f"coding-agent-{uuid.uuid4().hex[:8]}"
+        cmd = sandbox_command(root, name, args) if sandbox else [sys.executable, *args]
         try:
             result = subprocess.run(
                 cmd, cwd=root, env=env, capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=TEST_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired:
+            if sandbox:
+                subprocess.run(["docker", "rm", "-f", name], capture_output=True)
             return f"Fehler: Tests nach {TEST_TIMEOUT_SECONDS} Sekunden abgebrochen."
         return truncate(f"Exit-Code: {result.returncode}\n{result.stdout}{result.stderr}")
 

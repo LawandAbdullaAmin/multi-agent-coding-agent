@@ -40,8 +40,8 @@ class State(MessagesState):
     steps: int
 
 
-def build_graph(repo: Path):
-    tools = make_tools(repo)
+def build_graph(repo: Path, sandbox: bool = True):
+    tools = make_tools(repo, sandbox)
     llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0).bind_tools(tools)
 
     def agent(state: State) -> State:

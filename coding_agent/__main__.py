@@ -160,7 +160,14 @@ def main() -> None:
     # thread_id: unter dieser Kennung speichert der Checkpointer den Zustand dieses Laufs.
     # Die eigentlichen Limits sind MAX_STEPS, MAX_ROUNDS und WORKER_MODEL_CALLS;
     # recursion_limit ist nur ein Sicherheitsnetz von LangGraph.
-    config = {"recursion_limit": 200, "configurable": {"thread_id": run_info.id}}
+    # run_name, tags und metadata erscheinen im LangSmith-Trace und machen Läufe dort filterbar.
+    config = {
+        "recursion_limit": 200,
+        "configurable": {"thread_id": run_info.id},
+        "run_name": f"coding-agent ({run_info.mode})",
+        "tags": [run_info.mode],
+        "metadata": {"lauf_id": run_info.id, "task": run_info.task, "repo": Path(run_info.repo).name},
+    }
     snapshot = app.get_state(config)
     state = dict(snapshot.values)
 

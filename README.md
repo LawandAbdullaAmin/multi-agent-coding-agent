@@ -87,6 +87,10 @@ python -m coding_agent --repo <pfad> --auto-approve   # ohne Freigabe, z. B. fü
 python -m coding_agent --resume <lauf-id>             # unterbrochenen Lauf fortsetzen
 ```
 
+**Tracing (optional):** Mit `LANGSMITH_TRACING=true` und `LANGSMITH_API_KEY` in der `.env` wird jeder Lauf
+in LangSmith aufgezeichnet: jeder Supervisor-Entscheid, jeder Modell- und Werkzeugaufruf der Fach-Agenten,
+mit Tokens, Kosten und Dauer. Die Traces sind nach Lauf-ID und Modus filterbar.
+
 Docker Desktop muss laufen. Das Sandbox-Image wird beim ersten Start automatisch gebaut.
 Ohne Docker: `--no-sandbox` (Tests laufen dann lokal, nur für vertrauenswürdigen Code).
 
@@ -103,5 +107,5 @@ python -m pytest tests
 - [x] Phase 2b: Mehrere Agenten mit Supervisor
 - [x] Phase 3a: Human-in-the-loop (Freigabe, Verwerfen, Feedback-Schleife)
 - [x] Phase 3b: Persistentes Checkpointing (Läufe später fortsetzen)
-- [ ] Phase 3c: LangSmith-Tracing
+- [x] Phase 3c: LangSmith-Tracing
 - [ ] Phase 4: Evaluation auf SWE-bench Lite

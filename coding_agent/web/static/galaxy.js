@@ -12,7 +12,7 @@
 
 import * as THREE from "three";
 
-export const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export const AGENTS = {
   explorer: { name: "Explorer", role: "Analysiert den Code", color: "#5fd4f0", icon: "search", kind: 0 },
@@ -149,12 +149,10 @@ const BEAM_FRAGMENT = /* glsl */ `
 
 // Agent als Energiekugel: farbiger Rand, bewegte Bänder, beleuchtet vom Supervisor
 const ORB_VERTEX = /* glsl */ `
-  varying vec3 vNormal, vView, vWorldNormal, vWorld, vLocal;
+  varying vec3 vWorldNormal, vWorld, vLocal;
   void main() {
     vec4 world = modelMatrix * vec4(position, 1.0);
     vec4 view = viewMatrix * world;
-    vNormal = normalize(normalMatrix * normal);
-    vView = -view.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     vWorld = world.xyz;
     vLocal = position;
@@ -213,7 +211,7 @@ const SIMPLEX = /* glsl */ `
 const ORB_FRAGMENT = /* glsl */ `
   uniform vec3 uColor;
   uniform float uTime, uGlow, uFlash, uKind;
-  varying vec3 vNormal, vView, vWorldNormal, vWorld, vLocal;
+  varying vec3 vWorldNormal, vWorld, vLocal;
   ${SIMPLEX}
   void main() {
     vec3 n = normalize(vLocal);

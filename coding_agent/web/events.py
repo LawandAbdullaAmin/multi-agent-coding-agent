@@ -9,6 +9,7 @@ import re
 from langchain_core.messages import AIMessage, ToolMessage
 
 from coding_agent.team import SPECIALISTS
+from coding_agent.tools import tests_green
 
 
 def describe_tool_call(name: str, args: dict) -> str:
@@ -28,16 +29,16 @@ def describe_tool_call(name: str, args: dict) -> str:
 def summarize_tests(output: str) -> tuple[str, bool]:
     passed = int(match.group(1)) if (match := re.search(r"(\d+) passed", output)) else 0
     failed = sum(int(n) for n in re.findall(r"(\d+) (?:failed|errors?)\b", output))
-    if output.startswith("Exit-Code: 0"):
+    if tests_green(output):
         return f"{passed} Tests bestanden", True
     if passed + failed == 0:
         return "Tests konnten nicht ausgeführt werden", False
     return f"{failed} von {passed + failed} Tests fehlgeschlagen", False
 
 
-def describe_tool_result(name: str, content: str) -> tuple[str, bool] | None:
+def describe_tool_result(name: str, content: str, error: bool) -> tuple[str, bool] | None:
     """Kurzfassung eines Werkzeugergebnisses, oder None, wenn es nicht erwähnenswert ist."""
-    if content.startswith("Fehler"):
+    if error:
         if "darf nicht geändert werden" in content:
             return "Schreibschutz greift: Zugriff verweigert", False
         return content.splitlines()[0][:160], False
@@ -87,6 +88,6 @@ class EventTranslator:
                                    "text": describe_tool_call(call["name"], call["args"])})
             elif isinstance(message, ToolMessage):
                 name = self.pending.pop(message.tool_call_id, message.name or "")
-                if summary := describe_tool_result(name, message.content):
+                if summary := describe_tool_result(name, message.content, message.status == "error"):
                     events.append({"type": "observation", "agent": agent, "text": summary[0], "ok": summary[1]})
         return events

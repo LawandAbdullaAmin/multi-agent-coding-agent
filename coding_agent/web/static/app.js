@@ -163,6 +163,7 @@ async function startDemo(name) {
 
 function openRun(id) {
   state.source?.close();
+  stopPreview();
   Object.assign(state, { sessionId: id, cards: {}, steps: 0, unseen: 0, elapsed: 0, sheetReady: false });
   $("feed").innerHTML = "";
   $("feedCount").textContent = "0 Schritte";
@@ -335,7 +336,7 @@ const handlers = {
   review(event) {
     stopTimer();
     setStatus("waiting", "Wartet auf Freigabe");
-    // Die Supernova soll zu sehen sein, bevor das Ergebnis erscheint.
+    // Erst die Abschluss-Schockwelle in der Galaxie zeigen, dann das Ergebnis.
     setTimeout(() => showSheet(event), 1600);
   },
   done(event) {

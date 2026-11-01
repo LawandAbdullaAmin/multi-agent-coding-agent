@@ -2,7 +2,8 @@ import shutil
 
 import pytest
 
-from coding_agent.evaluate import copy_repo, estimate_cost, grade, load_tasks
+from coding_agent.evaluate import estimate_cost, grade, load_tasks
+from coding_agent.runs import copy_repo
 
 TASKS = load_tasks()
 

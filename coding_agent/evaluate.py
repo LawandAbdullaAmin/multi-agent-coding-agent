@@ -5,8 +5,8 @@
 
 Für jede Aufgabe aus benchmark/tasks/:
 1. Das Team arbeitet ohne Freigabe auf einer Kopie von repo/.
-2. Bewertet wird mit den Original-Tests aus repo/ (auch wenn der Agent Tests verändert hat)
-   plus versteckten Tests aus hidden/, die der Agent nie gesehen hat.
+2. Bewertet wird mit den Original-Tests aus repo/ (auch wenn das Team Tests verändert hat)
+   plus versteckten Tests aus hidden/, die das Team nie gesehen hat.
 3. Gemessen werden Erfolg, Dauer, Tokens und geschätzte Kosten.
 """
 
@@ -22,14 +22,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.callbacks import get_usage_metadata_callback
 
+from coding_agent.runs import DEFAULT_TASK, PROJECT_DIR, WORKSPACES_DIR, copy_repo, run_config
 from coding_agent.team import build_team_graph, model_names
-from coding_agent.tools import IGNORED_DIRS, ensure_sandbox_image, iter_files, make_tools
+from coding_agent.tools import ensure_sandbox_image, iter_files, make_tools, tests_green
 
-PROJECT_DIR = Path(__file__).resolve().parent.parent
 TASKS_DIR = PROJECT_DIR / "benchmark" / "tasks"
 RESULTS_DIR = PROJECT_DIR / "benchmark" / "results"
-EVAL_DIR = PROJECT_DIR / "workspaces" / "eval"
-DEFAULT_TASK = "Finde und behebe die Fehler, sodass alle Tests erfolgreich durchlaufen."
+EVAL_DIR = WORKSPACES_DIR / "eval"
 
 # US-Dollar pro 1 Mio. Tokens (Eingabe, Ausgabe) laut OpenAI-Preisliste. Rabatte für
 # gecachte Eingaben sind nicht berücksichtigt, die Kosten sind also eher zu hoch geschätzt.
@@ -75,10 +74,6 @@ def find_test_files(folder: Path) -> list[Path]:
     return [p.relative_to(folder) for p in iter_files(folder) if p.name.startswith("test_")]
 
 
-def copy_repo(source: Path, target: Path) -> None:
-    shutil.copytree(source, target, ignore=shutil.ignore_patterns(*IGNORED_DIRS))
-
-
 def grade(task: Task, workspace: Path, grading_dir: Path, sandbox: bool = True) -> tuple[bool, bool, str]:
     """Bewertet einen Workspace. Gibt (bestanden, Tests verändert, Testausgabe) zurück."""
     repo = task.path / "repo"
@@ -94,7 +89,7 @@ def grade(task: Task, workspace: Path, grading_dir: Path, sandbox: bool = True) 
         shutil.copytree(task.path / "hidden", grading_dir, dirs_exist_ok=True)
     run_tests = {t.name: t for t in make_tools(grading_dir, sandbox)}["run_tests"]
     output = run_tests.invoke({})
-    return output.startswith("Exit-Code: 0"), tests_modified, output
+    return tests_green(output), tests_modified, output
 
 
 def estimate_cost(usage: dict) -> float | None:
@@ -113,13 +108,7 @@ def run_one(task: Task, repeat: int, run_dir: Path, sandbox: bool) -> Result:
     name = f"{task.name}-{repeat}"
     workspace = run_dir / name
     copy_repo(task.path / "repo", workspace)
-    config = {
-        "recursion_limit": 200,
-        "configurable": {"thread_id": name},
-        "run_name": f"eval {task.name}",
-        "tags": ["eval"],
-        "metadata": {"task": task.name, "repeat": repeat},
-    }
+    config = run_config(name, f"eval {task.name}", ["eval"], {"task": task.name, "repeat": repeat})
 
     error = ""
     start = time.perf_counter()

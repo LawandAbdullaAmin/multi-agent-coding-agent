@@ -33,7 +33,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
-from coding_agent.tools import WritePolicy, is_test_file, iter_files, make_tools
+from coding_agent.tools import WritePolicy, is_test_file, iter_files, make_tools, tests_green
 
 MAX_ROUNDS = 15
 WORKER_MODEL_CALLS = 15
@@ -179,29 +179,34 @@ def format_reports(reports: list[Report]) -> str:
     return "\n\n".join(f"[{r['agent']}] Auftrag: {r['instruction']}\nBericht: {r['result']}" for r in reports)
 
 
+def is_write(message) -> bool:
+    """Hat dieser Werkzeugaufruf eine Datei tatsächlich geändert? Abgelehnte Versuche zählen nicht."""
+    return (isinstance(message, ToolMessage) and message.name in ("edit_file", "write_file")
+            and message.status != "error")
+
+
 def last_test_result(messages: list) -> bool | None:
     """Wertet die Werkzeugaufrufe aus: Haben die Tests zuletzt bestanden?
 
     Als bestanden zählt nur ein Lauf über alle Tests. Ein Teillauf (run_tests mit target)
-    kann nur ein Fehlschlagen anzeigen. None, wenn nichts davon passiert ist.
+    kann nur ein Fehlschlagen anzeigen. Jede Änderung danach macht das Ergebnis ungültig.
+    None, wenn nichts davon passiert ist.
     """
     targets = {call["id"]: call["args"].get("target") for m in messages if isinstance(m, AIMessage)
                for call in m.tool_calls}
     passed = None
     for message in messages:
-        if isinstance(message, ToolMessage):
-            if message.name == "run_tests":
-                green = message.content.startswith("Exit-Code: 0")
-                if not green or not targets.get(message.tool_call_id):
-                    passed = green
-            elif message.name in ("edit_file", "write_file"):
-                passed = False
+        if isinstance(message, ToolMessage) and message.name == "run_tests":
+            green = tests_green(message.content)
+            if not green or not targets.get(message.tool_call_id):
+                passed = green
+        elif is_write(message):
+            passed = False
     return passed
 
 
-def changed_files(messages: list) -> bool:
-    return any(isinstance(m, ToolMessage) and m.name in ("edit_file", "write_file") and "Fehler" not in m.content
-               for m in messages)
+def wrote_files(messages: list) -> bool:
+    return any(is_write(m) for m in messages)
 
 
 def pick_tier(role: ModelTier, name: str, reports: list[Report]) -> Literal["fast", "strong"]:
@@ -243,10 +248,10 @@ def write_policies(repo: Path) -> dict[str, WritePolicy | None]:
 def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True,
                      checkpointer: BaseCheckpointSaver | None = None, models: dict[str, str] | None = None):
     names = models or model_names()
-    models = {tier: make_model(name) for tier, name in names.items()}
+    llms = {tier: make_model(name) for tier, name in names.items()}
     toolsets = {name: {t.name: t for t in make_tools(repo, sandbox, policy)}
                 for name, policy in write_policies(repo).items()}
-    supervisor_llm = models["strong"].with_structured_output(Decision)
+    supervisor_llm = llms["strong"].with_structured_output(Decision)
 
     def supervisor(state: State) -> State:
         rounds = state.get("rounds", 0)
@@ -268,7 +273,7 @@ def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True
     def make_worker(name: str, role: Role):
         tiers = ["fast", "strong"] if role.model == "escalate" else [role.model]
         agents = {tier: create_agent(
-            models[tier],
+            llms[tier],
             [toolsets[role.toolset][n] for n in role.tools],
             system_prompt=role.prompt + WORKER_RULES,
             middleware=[ModelCallLimitMiddleware(run_limit=WORKER_MODEL_CALLS)],
@@ -288,7 +293,7 @@ def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True
                 update["spec_approved"] = verdict.approved
                 text = f"Freigegeben: {'ja' if verdict.approved else 'nein'}. {verdict.summary}"
                 text += "".join(f"\n- {issue}" for issue in verdict.issues)
-            if changed_files(messages):
+            if wrote_files(messages):
                 update["spec_approved"] = False
             if (passed := last_test_result(messages)) is not None:
                 update["tests_passed"] = passed

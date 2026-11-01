@@ -20,6 +20,7 @@ from coding_agent.tools import IGNORED_DIRS, iter_files, read_text
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 RUNS_DIR = PROJECT_DIR / ".runs"
 WORKSPACES_DIR = PROJECT_DIR / "workspaces"
+DEFAULT_TASK = "Finde und behebe die Fehler, sodass alle Tests erfolgreich durchlaufen."
 
 
 @dataclass
@@ -33,12 +34,27 @@ class Run:
     in_place: bool
 
 
+def copy_repo(source: Path, target: Path) -> None:
+    shutil.copytree(source, target, ignore=shutil.ignore_patterns(*IGNORED_DIRS))
+
+
+def run_config(thread_id: str, run_name: str, tags: list[str], metadata: dict) -> dict:
+    """Konfiguration für einen Lauf des Graphen.
+
+    thread_id: unter dieser Kennung speichert der Checkpointer den Zustand. run_name, tags und
+    metadata erscheinen im LangSmith-Trace und machen Läufe dort filterbar. Die eigentlichen Limits
+    sind MAX_ROUNDS und WORKER_MODEL_CALLS, recursion_limit ist nur ein Sicherheitsnetz von LangGraph.
+    """
+    return {"recursion_limit": 200, "configurable": {"thread_id": thread_id},
+            "run_name": run_name, "tags": tags, "metadata": metadata}
+
+
 def new_run(repo: Path, task: str, in_place: bool = False, auto_approve: bool = False, sandbox: bool = True) -> Run:
     repo = repo.resolve()
     run_id = f"{repo.name}-{time.strftime('%Y%m%d-%H%M%S')}"
     workspace = repo if in_place else WORKSPACES_DIR / run_id
     if not in_place:
-        shutil.copytree(repo, workspace, ignore=shutil.ignore_patterns(*IGNORED_DIRS))
+        copy_repo(repo, workspace)
     return Run(
         id=run_id, task=task, repo=str(repo), workspace=str(workspace), sandbox=sandbox, in_place=in_place,
         # Freigabe nur, wenn auf einer Kopie gearbeitet wird: Nur dann kann man Änderungen noch verwerfen.

@@ -9,7 +9,6 @@ kostenlos abspielen.
 import asyncio
 import difflib
 import json
-import shutil
 import threading
 import time
 from pathlib import Path
@@ -22,18 +21,27 @@ from langchain_core.callbacks import get_usage_metadata_callback
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from coding_agent.evaluate import TASKS_DIR, estimate_cost
+from coding_agent.evaluate import estimate_cost, load_tasks
 from coding_agent.runs import (
-    PROJECT_DIR, RUNS_DIR, WORKSPACES_DIR, Run, apply_changes, changed_files, diff_text, new_run,
-    open_checkpointer, save_run,
+    PROJECT_DIR,
+    RUNS_DIR,
+    WORKSPACES_DIR,
+    Run,
+    apply_changes,
+    changed_files,
+    copy_repo,
+    diff_text,
+    new_run,
+    open_checkpointer,
+    run_config,
+    save_run,
 )
 from coding_agent.team import build_team_graph, model_names
-from coding_agent.tools import IGNORED_DIRS, docker_available, ensure_sandbox_image, read_text
+from coding_agent.tools import docker_available, ensure_sandbox_image, read_text
 from coding_agent.web.events import EventTranslator
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEMO_DIR = PROJECT_DIR / "demo"
-DEFAULT_TASK = "Finde und behebe die Fehler, sodass alle Tests erfolgreich durchlaufen."
 BUDGET_MODELS = {"fast": "gpt-4.1-mini", "strong": "gpt-4.1-mini"}
 DEMO_MAX_PAUSE = 1.2  # Sekunden: lange Wartezeiten der Aufzeichnung werden gekürzt
 FINAL_EVENTS = {"done", "error"}
@@ -42,13 +50,8 @@ FINAL_EVENTS = {"done", "error"}
 # --- Projekte -------------------------------------------------------------------
 
 def list_projects() -> list[dict]:
-    projects = []
-    for task_dir in sorted(p for p in TASKS_DIR.iterdir() if p.is_dir()):
-        meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-        projects.append({"id": f"task:{task_dir.name}", "name": task_dir.name, "kind": meta["kind"],
-                         "difficulty": meta["difficulty"], "task": meta.get("task", DEFAULT_TASK),
-                         "path": task_dir / "repo"})
-    return projects
+    return [{"id": f"task:{t.name}", "name": t.name, "kind": t.kind, "difficulty": t.difficulty,
+             "task": t.description, "path": t.path / "repo"} for t in load_tasks()]
 
 
 def file_stats(original: Path, workspace: Path) -> list[dict]:
@@ -121,8 +124,7 @@ class RunSession(Session):
         run = self.run
         try:
             app = build_team_graph(Path(run.workspace), run.sandbox, run.human_review, open_checkpointer(), self.models)
-            config = {"recursion_limit": 200, "configurable": {"thread_id": run.id},
-                      "run_name": "coding-agent (web)", "tags": ["web"], "metadata": {"lauf_id": run.id}}
+            config = run_config(run.id, "coding-agent (web)", ["web"], {"lauf_id": run.id})
             base_cost, base_tokens = self.cost, self.tokens
             with get_usage_metadata_callback() as usage:
                 for namespace, chunk in app.stream(inputs, config, stream_mode="updates", subgraphs=True):
@@ -248,9 +250,9 @@ def start(request: StartRequest) -> dict:
         raise HTTPException(400, "Die Aufgabe ist leer.")
     if request.sandbox:
         ensure_sandbox_image()
-    # Projekte werden kopiert, damit eine Freigabe nie die Beispiele oder den Benchmark verändert.
+    # Projekte werden kopiert, damit eine Freigabe nie den Benchmark verändert.
     repo = WORKSPACES_DIR / "web-repos" / f"{project['name']}-{time.strftime('%Y%m%d-%H%M%S')}"
-    shutil.copytree(project["path"], repo, ignore=shutil.ignore_patterns(*IGNORED_DIRS))
+    copy_repo(project["path"], repo)
     run = new_run(repo, request.task.strip(), sandbox=request.sandbox)
     save_run(run)
     session = RunSession(run, BUDGET_MODELS if request.budget else model_names(), project["name"])

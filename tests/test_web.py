@@ -128,6 +128,10 @@ def test_translator_humanizes_tools():
     result = ToolMessage("Exit-Code: 1\n..F.F.\n2 failed, 4 passed in 0.1s", tool_call_id="7")
     assert translator.translate(("tester:b",), "tools", {"messages": [result]}) == [
         {"type": "observation", "agent": "tester", "text": "2 von 6 Tests fehlgeschlagen", "ok": False}]
+    denied = ToolMessage("Fehler: test_a.py darf nicht geändert werden.", name="edit_file", tool_call_id="8",
+                         status="error")
+    assert translator.translate(("developer:c",), "tools", {"messages": [denied]}) == [
+        {"type": "observation", "agent": "developer", "text": "Schreibschutz greift: Zugriff verweigert", "ok": False}]
 
 
 def test_summarize_tests():

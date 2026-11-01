@@ -1,6 +1,6 @@
 from langchain_core.messages import AIMessage, ToolMessage
 
-from coding_agent.team import changed_files, last_test_result, pick_tier, verification_step, write_policies
+from coding_agent.team import last_test_result, pick_tier, verification_step, write_policies, wrote_files
 
 
 def test_developer_escalates_to_strong_model_on_second_attempt():
@@ -43,8 +43,14 @@ def test_only_full_test_run_counts_as_passed():
 
 
 def test_rejected_edits_are_not_changes():
-    assert not changed_files([tool_result("edit_file", "Fehler: test_app.py darf nicht geändert werden.")])
-    assert changed_files([tool_result("edit_file", "app.py geändert.")])
+    rejected = ToolMessage("Fehler: test_app.py darf nicht geändert werden.", name="edit_file", tool_call_id="1",
+                           status="error")
+    assert not wrote_files([rejected])
+    assert wrote_files([tool_result("edit_file", "app.py geändert.")])
+    # Entscheidend ist der Fehlerstatus, nicht der Text: Auch eine Datei namens Fehler.py ist eine Änderung.
+    assert wrote_files([tool_result("write_file", "Fehler.py geschrieben (3 Zeilen).")])
+    # Ein abgelehnter Schreibversuch macht ein grünes Testergebnis nicht ungültig.
+    assert last_test_result([tool_result("run_tests", "Exit-Code: 0\n..."), rejected]) is True
 
 
 def test_finish_requires_green_tests_and_review():

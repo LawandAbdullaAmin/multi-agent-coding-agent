@@ -1,0 +1,6 @@
+line-length = 120
+extend-exclude = ["benchmark/tasks", "workspaces"]
+
+[lint]
+# Pyflakes (ungenutzte Importe/Variablen), Syntaxfehler, typische Fehlerquellen (bugbear), Import-Sortierung
+select = ["F", "E9", "B", "I"]

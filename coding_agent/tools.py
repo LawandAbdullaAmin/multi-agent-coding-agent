@@ -49,7 +49,9 @@ def ensure_sandbox_image() -> None:
 def sandbox_command(root: Path, name: str, args: list[str]) -> list[str]:
     # Unter Linux gelten die Dateirechte des Hosts auch im Container: Mit der eigenen Nutzer-ID darf die
     # Sandbox das Repository lesen, bleibt aber ohne Root-Rechte. Docker Desktop (Windows/macOS) braucht das nicht.
-    user = ["--user", f"{os.getuid()}:{os.getgid()}", "--env", "HOME=/tmp"] if hasattr(os, "getuid") and os.getuid() != 0 else []
+    user = []
+    if hasattr(os, "getuid") and os.getuid() != 0:
+        user = ["--user", f"{os.getuid()}:{os.getgid()}", "--env", "HOME=/tmp"]
     return [
         "docker", "run", "--rm", "--name", name, *user,
         "--network", "none",                     # kein Internet
@@ -59,6 +61,11 @@ def sandbox_command(root: Path, name: str, args: list[str]) -> list[str]:
         "--mount", f"type=bind,source={root},target=/repo,readonly",
         SANDBOX_IMAGE, "python", *args,
     ]
+
+
+def tests_green(output: str) -> bool:
+    """Ergebnis von run_tests: Sind alle ausgeführten Tests bestanden?"""
+    return output.startswith("Exit-Code: 0")
 
 
 def resolve_path(root: Path, path: str) -> Path:
@@ -117,7 +124,7 @@ def make_tools(root: Path, sandbox: bool = True, can_write: WritePolicy | None =
         """Listet alle Dateien in einem Ordner des Repositorys rekursiv auf."""
         base = resolve_path(root, directory)
         if not base.is_dir():
-            return f"Fehler: {directory} ist kein Ordner."
+            raise ToolException(f"Fehler: {directory} ist kein Ordner.")
         files = [p.relative_to(root).as_posix() for p in iter_files(base)]
         return truncate("\n".join(files) or "(leer)")
 
@@ -126,7 +133,7 @@ def make_tools(root: Path, sandbox: bool = True, can_write: WritePolicy | None =
         """Liest eine Datei mit Zeilennummern. Optional nur die Zeilen start_line bis end_line."""
         file = resolve_path(root, path)
         if not file.is_file():
-            return f"Fehler: Datei {path} existiert nicht."
+            raise ToolException(f"Fehler: Datei {path} existiert nicht.")
         lines = read_text(file).splitlines()
         end = end_line or len(lines)
         numbered = [f"{i:>4}  {line}" for i, line in enumerate(lines[start_line - 1:end], start_line)]
@@ -138,7 +145,7 @@ def make_tools(root: Path, sandbox: bool = True, can_write: WritePolicy | None =
         try:
             regex = re.compile(pattern)
         except re.error as e:
-            return f"Fehler: ungültiger regulärer Ausdruck: {e}"
+            raise ToolException(f"Fehler: ungültiger regulärer Ausdruck: {e}") from None
         hits = []
         for file in iter_files(root):
             if not file.match(file_glob):
@@ -171,14 +178,15 @@ def make_tools(root: Path, sandbox: bool = True, can_write: WritePolicy | None =
         check_writable(file, new_text)
         with write_lock:
             if not file.is_file():
-                return f"Fehler: Datei {path} existiert nicht."
+                raise ToolException(f"Fehler: Datei {path} existiert nicht.")
             content = read_text(file)
             count = content.count(old_text)
             if count == 0:
-                return ("Fehler: old_text wurde nicht gefunden. Lies die Datei erneut und kopiere den Text exakt, "
-                        "aber ohne die Zeilennummern am Zeilenanfang.")
+                raise ToolException("Fehler: old_text wurde nicht gefunden. Lies die Datei erneut und kopiere "
+                                    "den Text exakt, aber ohne die Zeilennummern am Zeilenanfang.")
             if count > 1:
-                return f"Fehler: old_text kommt {count}-mal vor. Nimm mehr umgebende Zeilen dazu, damit er eindeutig ist."
+                raise ToolException(f"Fehler: old_text kommt {count}-mal vor. "
+                                    "Nimm mehr umgebende Zeilen dazu, damit er eindeutig ist.")
             file.write_text(content.replace(old_text, new_text), encoding="utf-8")
         return f"{path} geändert."
 
@@ -202,7 +210,7 @@ def make_tools(root: Path, sandbox: bool = True, can_write: WritePolicy | None =
         except subprocess.TimeoutExpired:
             if sandbox:
                 subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-            return f"Fehler: Tests nach {TEST_TIMEOUT_SECONDS} Sekunden abgebrochen."
+            raise ToolException(f"Fehler: Tests nach {TEST_TIMEOUT_SECONDS} Sekunden abgebrochen.") from None
         return truncate(f"Exit-Code: {result.returncode}\n{result.stdout}{result.stderr}")
 
     @tool
@@ -217,7 +225,7 @@ def make_tools(root: Path, sandbox: bool = True, can_write: WritePolicy | None =
         return truncate("".join(diffs) or "Keine Änderungen.")
 
     tools = [list_files, read_file, search_code, write_file, edit_file, run_tests, show_changes]
-    # ToolException wird als Nachricht an den Agenten zurückgegeben, statt den Lauf abzubrechen.
+    # ToolException wird als Nachricht mit status="error" an den Agenten zurückgegeben, statt den Lauf abzubrechen.
     for t in tools:
         t.handle_tool_error = True
     return tools

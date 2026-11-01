@@ -15,11 +15,19 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
-from coding_agent.runs import apply_changes, diff_text, load_run, new_run, open_checkpointer, save_run
+from coding_agent.runs import (
+    DEFAULT_TASK,
+    apply_changes,
+    diff_text,
+    load_run,
+    new_run,
+    open_checkpointer,
+    run_config,
+    save_run,
+)
 from coding_agent.team import ReviewAnswer, build_team_graph
 from coding_agent.tools import ensure_sandbox_image
 
-DEFAULT_TASK = "Finde und behebe die Fehler, sodass alle Tests erfolgreich durchlaufen."
 PREVIEW_CHARS = 400
 YES = {"", "j", "ja", "y", "yes"}
 NO = {"n", "nein", "no"}
@@ -104,17 +112,8 @@ def main() -> None:
     app = build_team_graph(workspace, run_info.sandbox, run_info.human_review, open_checkpointer())
     inputs = {"task": run_info.task}
 
-    # thread_id: unter dieser Kennung speichert der Checkpointer den Zustand dieses Laufs.
-    # Die eigentlichen Limits sind MAX_ROUNDS und WORKER_MODEL_CALLS;
-    # recursion_limit ist nur ein Sicherheitsnetz von LangGraph.
-    # run_name, tags und metadata erscheinen im LangSmith-Trace und machen Läufe dort filterbar.
-    config = {
-        "recursion_limit": 200,
-        "configurable": {"thread_id": run_info.id},
-        "run_name": "coding-agent",
-        "tags": ["cli"],
-        "metadata": {"lauf_id": run_info.id, "task": run_info.task, "repo": Path(run_info.repo).name},
-    }
+    config = run_config(run_info.id, "coding-agent", ["cli"],
+                        {"lauf_id": run_info.id, "task": run_info.task, "repo": repo.name})
     snapshot = app.get_state(config)
     state = dict(snapshot.values)
 

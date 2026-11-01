@@ -174,7 +174,7 @@ textarea:focus, input:focus { border-color: rgba(242, 195, 143, 0.6); box-shadow
 .showcase { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; }
 .showcase h2 { margin: 0 0 6px; }
 .showcase p { margin: 0; max-width: 560px; line-height: 1.55; }
-a.ghost-button { text-decoration: none; display: inline-flex; align-items: center; }
+a.ghost-button { text-decoration: none; display: inline-flex; align-items: center; color: var(--text); }
 .cost-hint { text-align: right; color: var(--muted); font-size: 12px; margin: 12px 0 0; }
 
 /* ---------- Buttons ---------- */

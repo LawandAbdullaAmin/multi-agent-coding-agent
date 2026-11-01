@@ -47,8 +47,11 @@ def ensure_sandbox_image() -> None:
 
 
 def sandbox_command(root: Path, name: str, args: list[str]) -> list[str]:
+    # Unter Linux gelten die Dateirechte des Hosts auch im Container: Mit der eigenen Nutzer-ID darf die
+    # Sandbox das Repository lesen, bleibt aber ohne Root-Rechte. Docker Desktop (Windows/macOS) braucht das nicht.
+    user = ["--user", f"{os.getuid()}:{os.getgid()}", "--env", "HOME=/tmp"] if hasattr(os, "getuid") and os.getuid() != 0 else []
     return [
-        "docker", "run", "--rm", "--name", name,
+        "docker", "run", "--rm", "--name", name, *user,
         "--network", "none",                     # kein Internet
         "--memory", "512m", "--cpus", "1", "--pids-limit", "256",
         "--read-only", "--tmpfs", "/tmp",        # Dateisystem schreibgeschützt, nur /tmp beschreibbar

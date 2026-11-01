@@ -1,14 +1,14 @@
 # Multi-Agent Coding-Agent
 
-[![Tests](https://github.com/GITHUB_USER/multi-agent-coding-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/GITHUB_USER/multi-agent-coding-agent/actions/workflows/ci.yml)
-[![Website](https://github.com/GITHUB_USER/multi-agent-coding-agent/actions/workflows/pages.yml/badge.svg)](https://GITHUB_USER.github.io/multi-agent-coding-agent/)
+[![Tests](https://github.com/LawandAbdullaAmin/multi-agent-coding-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/LawandAbdullaAmin/multi-agent-coding-agent/actions/workflows/ci.yml)
+[![Website](https://github.com/LawandAbdullaAmin/multi-agent-coding-agent/actions/workflows/pages.yml/badge.svg)](https://LawandAbdullaAmin.github.io/multi-agent-coding-agent/)
 
 Ein autonomes KI-Team mit LangGraph, das Fehler in Python-Projekten behebt und Features umsetzt.
 Ein Supervisor verteilt die Arbeit an fünf spezialisierte Agenten: Sie analysieren den Code, schreiben
 Tests aus der Anforderung, programmieren, führen die Tests in einer Docker-Sandbox aus und prüfen sich
 gegenseitig. Der Mensch gibt das Ergebnis am Ende frei.
 
-**Live-Demo:** [GITHUB_USER.github.io/multi-agent-coding-agent](https://GITHUB_USER.github.io/multi-agent-coding-agent/)
+**Live-Demo:** [LawandAbdullaAmin.github.io/multi-agent-coding-agent](https://LawandAbdullaAmin.github.io/multi-agent-coding-agent/)
 (statische Vorschau mit simuliertem Lauf, ohne Server und ohne Kosten)
 
 ![Weboberfläche: Der Supervisor schickt einen Auftrag an den Explorer](docs/screenshot.png)

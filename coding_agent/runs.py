@@ -86,7 +86,7 @@ def load_run(run_id: str) -> Run:
     if not path.exists():
         raise FileNotFoundError(f"Kein gespeicherter Lauf mit der ID '{run_id}' in {RUNS_DIR}.")
     data = json.loads(path.read_text(encoding="utf-8"))
-    # Ältere Läufe enthalten Felder, die es nicht mehr gibt (z. B. "mode").
+    # Felder, die es in älteren Versionen gab, werden ignoriert.
     return Run(**{key: value for key, value in data.items() if key in Run.__dataclass_fields__})
 
 

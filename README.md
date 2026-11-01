@@ -13,9 +13,22 @@ gegenseitig. Der Mensch gibt das Ergebnis am Ende frei.
 
 ![Weboberfläche: Der Supervisor schickt einen Auftrag an den Explorer](docs/screenshot.png)
 
+## Highlights
+
+- **Supervisor-Architektur in LangGraph:** ein Supervisor und fünf Fach-Agenten mit eigenen Rollen, Werkzeugen und Modellen
+- **Guardrails im Code statt im Prompt:** Schreibrechte pro Rolle, Abschluss nur mit grünen Tests und Freigabe des Reviewers
+- **Sichere Ausführung:** generierter Code läuft in einer Docker-Sandbox ohne Netzwerk und ohne Schreibrechte
+- **Human-in-the-loop:** Diff prüfen, übernehmen, verwerfen oder Feedback an das Team geben
+- **Persistenz und Tracing:** Läufe mit SQLite-Checkpoints fortsetzen, jeder Schritt in LangSmith nachvollziehbar
+- **Evaluation:** eigener Benchmark mit versteckten Tests, vier Iterationen von 83 % auf 100 % gelöste Aufgaben
+- **Weboberfläche:** FastAPI mit Live-Streaming und einer 3D-Ansicht des Teams in Three.js
+
+**Tech-Stack:** Python, LangGraph, LangChain (`create_agent`), OpenAI (`gpt-4.1`, `gpt-4.1-mini`), Docker,
+SQLite, LangSmith, FastAPI, Server-Sent Events, Three.js/WebGL, pytest, GitHub Actions
+
 ## Architektur
 
-### Team-Modus (Standard): Supervisor mit Fach-Agenten
+### Supervisor mit Fach-Agenten
 
 ```
                        +--> explorer     --+
@@ -88,8 +101,8 @@ am letzten gespeicherten Schritt weiter. Wartet er auf die Freigabe, geht es dir
 - Parallele Dateiänderungen sind durch eine Sperre geschützt (keine verlorenen Änderungen).
 - Text mit Steuerzeichen wird nicht geschrieben. Kleine Modelle verstümmeln Sonderzeichen wie `€`
   gelegentlich zu `\x00` und hatten so schon eine Quelldatei zerstört.
-- Der Agent arbeitet auf einer Kopie unter `workspaces/` und zeigt am Ende einen Diff.
-- Vom Agenten geschriebener Code läuft nur in einem Docker-Container ([sandbox/Dockerfile](sandbox/Dockerfile)):
+- Das Team arbeitet auf einer Kopie unter `workspaces/`, das Original ändert sich erst nach der Freigabe.
+- Von den Agenten geschriebener Code läuft nur in einem Docker-Container ([sandbox/Dockerfile](sandbox/Dockerfile)):
   kein Netzwerk, schreibgeschütztes Dateisystem, eigener Nutzer ohne Root-Rechte,
   Limits für RAM (512 MB), CPU und Prozesse, keine API-Schlüssel in der Umgebung.
 
@@ -99,7 +112,7 @@ am letzten gespeicherten Schritt weiter. Wartet er auf die Freigabe, geht es dir
 # einmalig: .env.example nach .env kopieren und OPENAI_API_KEY eintragen
 pip install -r requirements.txt
 
-python -m coding_agent --repo examples/calculator
+python -m coding_agent --repo benchmark/tasks/calculator/repo
 python -m coding_agent --repo <pfad> "Eigene Aufgabe"
 python -m coding_agent --repo <pfad> --auto-approve   # ohne Freigabe, z. B. für Evaluationen
 python -m coding_agent --resume <lauf-id>             # unterbrochenen Lauf fortsetzen
@@ -120,11 +133,11 @@ Testergebnis zur Freigabe: übernehmen, verwerfen oder Feedback an das Team.
 
 - **Budget-Modus:** alle Rollen mit dem günstigen Modell.
 - **Vorschau:** ein simulierter Lauf ohne Modellaufrufe, auch als statische Seite auf GitHub Pages.
-- Der Server lauscht nur auf `127.0.0.1`. Beispiele und Benchmark-Aufgaben werden vor jedem Lauf kopiert.
+- Der Server lauscht nur auf `127.0.0.1`. Die Benchmark-Aufgaben werden vor jedem Lauf kopiert.
 
 **Tracing (optional):** Mit `LANGSMITH_TRACING=true` und `LANGSMITH_API_KEY` in der `.env` wird jeder Lauf
 in LangSmith aufgezeichnet: jeder Supervisor-Entscheid, jeder Modell- und Werkzeugaufruf der Fach-Agenten,
-mit Tokens, Kosten und Dauer. Die Traces sind nach Lauf-ID und Modus filterbar.
+mit Tokens, Kosten und Dauer. Die Traces sind nach Lauf-ID, Projekt und Herkunft (CLI oder Evaluation) filterbar.
 
 Docker Desktop muss laufen. Das Sandbox-Image wird beim ersten Start automatisch gebaut.
 Ohne Docker: `--no-sandbox` (Tests laufen dann lokal, nur für vertrauenswürdigen Code).
@@ -134,8 +147,8 @@ Ohne Docker: `--no-sandbox` (Tests laufen dann lokal, nur für vertrauenswürdig
 Eigener Benchmark mit 10 Aufgaben in [benchmark/tasks/](benchmark/tasks/), von Off-by-one-Fehlern über
 Fehler in einer anderen als der getesteten Datei bis zu einer Feature-Anfrage im Stil eines Issues.
 
-- **Versteckte Tests:** Bewertet wird zusätzlich mit Tests aus `hidden/`, die der Agent nie sieht.
-- **Schutz gegen Schummeln:** Bewertet wird immer mit den Original-Tests. Verändert der Agent Tests, wird das markiert.
+- **Versteckte Tests:** Bewertet wird zusätzlich mit Tests aus `hidden/`, die das Team nie sieht.
+- **Schutz gegen Schummeln:** Bewertet wird immer mit den Original-Tests. Verändert das Team Tests, wird das markiert.
 - **Geprüfter Benchmark:** Ein Test stellt sicher, dass jede Aufgabe anfangs fehlschlägt und mit der
   Musterlösung aus `solution/` besteht.
 
@@ -147,7 +160,6 @@ python -m coding_agent.evaluate --repeats 3
 
 | Version | Gelöst | Ø Dauer | Ø Tokens | Ø Kosten pro Aufgabe |
 |---|---|---|---|---|
-| Einzel-Agent als Vergleichswert (`gpt-4.1-mini`, inzwischen entfernt) | 23/30 (77 %) | 15 s | 21.786 | $0,010 |
 | Team v1: explorer, developer, tester (`gpt-4.1-mini`) | 25/30 (83 %) | 33 s | 22.293 | $0,013 |
 | Team v2: + test_writer, reviewer, Guardrails (`gpt-4.1-mini`) | 23/30 (77 %) | 67 s | 62.730 | $0,032 |
 | Team v3: + Belegpflicht für Tests, Schutz vor Steuerzeichen (`gpt-4.1-mini`) | 25/30 (83 %) | 48 s | 39.549 | $0,020 |
@@ -155,7 +167,7 @@ python -m coding_agent.evaluate --repeats 3
 
 Was die Iterationen gezeigt haben:
 
-- **v1:** Beide Varianten hören auf, sobald die sichtbaren Tests grün sind. Bei `leap_year` übersehen sie
+- **v1:** Das Team hört auf, sobald die sichtbaren Tests grün sind. Bei `leap_year` übersieht es
   einen Fehler, der nur im Docstring beschrieben ist (0/3).
 - **v2:** Test-Autor und Reviewer lösen `leap_year` (3/3), aber das kleine Modell **erfindet Anforderungen**
   (z. B. „Minuten müssen unter 60 liegen“) und baut sie in Tests und Code ein. Insgesamt ein Rückschritt.
@@ -163,13 +175,13 @@ Was die Iterationen gezeigt haben:
 - **v3:** Belegpflicht (jeder Test mit Zitat aus Aufgabe oder Docstring) und Prüfung erfundener Regeln durch
   den Reviewer verringern das, beseitigen es mit `gpt-4.1-mini` aber nicht (`duration` 0/3).
 - **v4:** Mit dem starken Modell für Supervisor, Test-Autor, Reviewer und Nachbesserungen löst das Team
-  alle Aufgaben in allen Läufen, bei etwa 6-fachen Kosten gegenüber dem Einzel-Agenten.
+  alle Aufgaben in allen Läufen, bei etwa 5-fachen Kosten gegenüber v1.
 
 **Grenzen dieser Messung:**
 
 - Die Aufgaben sind klein (1–3 Dateien) und für aktuelle Modelle eher leicht. Bei 100 % ist der Benchmark ausgereizt.
-- Ob ein **Einzel-Agent mit `gpt-4.1`** ebenso gut abgeschnitten hätte, wurde nicht gemessen. Der Vorsprung von v4
-  lässt sich deshalb nicht sicher der Architektur statt dem stärkeren Modell zuschreiben.
+- Der Sprung von v3 auf v4 kommt vom stärkeren Modell. Wie viel die Architektur allein beiträgt, wurde nicht
+  getrennt gemessen (dafür wäre ein Vergleich mit einem einfacheren System auf demselben Modell nötig).
 - Die Kosten sind aus Token-Zahlen und Listenpreisen geschätzt, ohne Rabatt für gecachte Eingaben.
 
 ## Tests
@@ -180,17 +192,24 @@ python -m pytest
 
 Läuft bei jedem Push automatisch in GitHub Actions.
 
-## Roadmap
+## Projektstruktur
 
-- [x] Phase 1: Einzelner Agent mit Werkzeugen (ReAct-Schleife)
-- [x] Phase 2a: Docker-Sandbox für die Code-Ausführung
-- [x] Phase 2b: Mehrere Agenten mit Supervisor
-- [x] Phase 3a: Human-in-the-loop (Freigabe, Verwerfen, Feedback-Schleife)
-- [x] Phase 3b: Persistentes Checkpointing (Läufe später fortsetzen)
-- [x] Phase 3c: LangSmith-Tracing
-- [x] Phase 4a: Eigener Benchmark mit versteckten Tests, Team gegen Einzel-Agent
-- [x] Phase 5a: Test-Autor, Reviewer, Rollenrechte und Abschluss-Guardrails im Code
-- [x] Phase 5b: Modell nach Bedarf (günstig / stark, Eskalation des Entwicklers)
-- [x] Weboberfläche: FastAPI + Server-Sent Events, 3D-Galaxie mit Three.js, statische Demo auf GitHub Pages
-- [x] Einzel-Agent entfernt, nur noch das Multi-Agent-Team
-- [ ] Größere Projekte: Repo-Map, Evaluation auf SWE-bench Lite
+```
+coding_agent/
+  team.py        Graph: Supervisor, Fach-Agenten, Guardrails, Freigabe-Knoten
+  tools.py       Werkzeuge mit Rollenrechten und Docker-Sandbox
+  runs.py        Läufe, Arbeitskopien, Checkpointing
+  evaluate.py    Benchmark-Auswertung
+  __main__.py    Kommandozeile
+  web/           FastAPI-Server, Ereignis-Übersetzung, Oberfläche (static/)
+benchmark/tasks/ 10 Aufgaben mit Repository, versteckten Tests und Musterlösung
+benchmark/results/ Messergebnisse der Iterationen
+sandbox/         Docker-Image für die Testausführung
+tests/           Tests für Werkzeuge, Graph, Läufe, Benchmark und Weboberfläche
+```
+
+## Ausblick
+
+- Größere Projekte: Repo-Map für Codebasen mit vielen Dateien
+- Evaluation auf echten Open-Source-Fehlern (SWE-bench Lite)
+- Kontrollmessung: Beitrag der Architektur getrennt vom Modell

@@ -42,8 +42,7 @@ FINAL_EVENTS = {"done", "error"}
 # --- Projekte -------------------------------------------------------------------
 
 def list_projects() -> list[dict]:
-    projects = [{"id": f"example:{p.name}", "name": p.name, "kind": "Beispielprojekt", "difficulty": "leicht",
-                 "task": DEFAULT_TASK, "path": p} for p in sorted((PROJECT_DIR / "examples").iterdir()) if p.is_dir()]
+    projects = []
     for task_dir in sorted(p for p in TASKS_DIR.iterdir() if p.is_dir()):
         meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
         projects.append({"id": f"task:{task_dir.name}", "name": task_dir.name, "kind": meta["kind"],

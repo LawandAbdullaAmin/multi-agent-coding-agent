@@ -69,12 +69,12 @@ def wait_for(session, event_type, timeout=5.0):
 def test_index_and_projects(client):
     assert "Coding-Agent" in client.get("/").text
     projects = client.get("/api/projects").json()
-    assert {"example:calculator", "task:roman"} <= {p["id"] for p in projects}
+    assert {"task:calculator", "task:roman"} <= {p["id"] for p in projects}
     assert "path" not in projects[0]
 
 
 def test_full_run_with_approval(client, tmp_path):
-    run_id = client.post("/api/runs", json={"project": "example:calculator", "task": "Fix", "sandbox": False}).json()["id"]
+    run_id = client.post("/api/runs", json={"project": "task:calculator", "task": "Fix", "sandbox": False}).json()["id"]
     session = server.sessions[run_id]
 
     types = wait_for(session, "review")
@@ -89,8 +89,8 @@ def test_full_run_with_approval(client, tmp_path):
     done = session.events[-1]
     assert (done["type"], done["outcome"], done["files"]) == ("done", "approve", ["calculator.py"])
     assert (Path(session.run.repo) / "calculator.py").read_text(encoding="utf-8") == "# behoben\n"
-    # Das Beispiel selbst bleibt unverändert, weil die Oberfläche auf einer Kopie arbeitet.
-    assert "# behoben" not in (runs.PROJECT_DIR / "examples" / "calculator" / "calculator.py").read_text(encoding="utf-8")
+    # Die Benchmark-Aufgabe selbst bleibt unverändert, weil die Oberfläche auf einer Kopie arbeitet.
+    assert "# behoben" not in (runs.PROJECT_DIR / "benchmark" / "tasks" / "calculator" / "repo" / "calculator.py").read_text(encoding="utf-8")
     # Der Lauf wurde für den Demo-Modus aufgezeichnet.
     recording = tmp_path / ".runs" / f"{run_id}.events.jsonl"
     assert [json.loads(line)["type"] for line in recording.read_text(encoding="utf-8").splitlines()][-1] == "done"

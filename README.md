@@ -20,7 +20,7 @@ gegenseitig. Der Mensch gibt das Ergebnis am Ende frei.
 - **Sichere Ausführung:** generierter Code läuft in einer Docker-Sandbox ohne Netzwerk und ohne Schreibrechte
 - **Human-in-the-loop:** Diff prüfen, übernehmen, verwerfen oder Feedback an das Team geben
 - **Persistenz und Tracing:** Läufe mit SQLite-Checkpoints fortsetzen, jeder Schritt in LangSmith nachvollziehbar
-- **Evaluation:** eigener Benchmark mit versteckten Tests, vier Iterationen von 83 % auf 100 % gelöste Aufgaben
+- **Evaluation:** eigener Benchmark mit versteckten Tests
 - **Weboberfläche:** FastAPI mit Live-Streaming und einer 3D-Ansicht des Teams in Three.js
 
 **Tech-Stack:** Python, LangGraph, LangChain (`create_agent`), OpenAI (`gpt-4.1`, `gpt-4.1-mini`), Docker,

@@ -32,7 +32,7 @@ const stats = (addCost, addTokens) => {
 };
 
 export const PREVIEW_EVENTS = [
-  [0, { type: "run", project: "roman", task: TASK, demo: true, preview: true }],
+  [0, { type: "run", project: "roman", task: TASK, preview: true }],
   [700, { type: "dispatch", agent: "explorer", text: "Untersuche roman.py und die Tests. Welche Anforderungen beschreiben Aufgabe und Docstring?" }],
   [1500, stats(0.0004, 1900)],
   [2300, { type: "action", agent: "explorer", text: "Verschafft sich einen Überblick über das Projekt" }],

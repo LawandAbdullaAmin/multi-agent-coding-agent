@@ -1,9 +1,7 @@
 """Webserver der Oberfläche (FastAPI).
 
 Ein Lauf des Teams läuft in einem Hintergrund-Thread. Jedes Ereignis wird in einer Liste
-gesammelt, als Aufzeichnung gespeichert (.runs/<lauf-id>.events.jsonl) und per
-Server-Sent Events an den Browser gestreamt. Aufzeichnungen im Ordner demo/ lassen sich
-kostenlos abspielen.
+gesammelt und per Server-Sent Events an den Browser gestreamt.
 """
 
 import asyncio
@@ -23,8 +21,6 @@ from pydantic import BaseModel
 
 from coding_agent.evaluate import estimate_cost, load_tasks
 from coding_agent.runs import (
-    PROJECT_DIR,
-    RUNS_DIR,
     WORKSPACES_DIR,
     Run,
     apply_changes,
@@ -41,10 +37,7 @@ from coding_agent.tools import docker_available, ensure_sandbox_image, read_text
 from coding_agent.web.events import EventTranslator
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DEMO_DIR = PROJECT_DIR / "demo"
 BUDGET_MODELS = {"fast": "gpt-4.1-mini", "strong": "gpt-4.1-mini"}
-DEMO_MAX_PAUSE = 1.2  # Sekunden: lange Wartezeiten der Aufzeichnung werden gekürzt
-FINAL_EVENTS = {"done", "error"}
 
 
 # --- Projekte -------------------------------------------------------------------
@@ -68,47 +61,26 @@ def file_stats(original: Path, workspace: Path) -> list[dict]:
 
 # --- Sitzungen ------------------------------------------------------------------
 
-class Session:
-    """Gemeinsame Basis: gesammelte Ereignisse, die der Browser abholt."""
+class RunSession:
+    """Ein Lauf des Teams: führt den Graphen aus und sammelt die Ereignisse, die der Browser abholt."""
 
-    def __init__(self, session_id: str) -> None:
-        self.id = session_id
+    def __init__(self, run: Run, models: dict[str, str], project: str) -> None:
+        self.id, self.run, self.models = run.id, run, models
         self.events: list[dict] = []
         self.lock = threading.Lock()
         self.started = time.time()
         self.busy = False
+        self.cost, self.tokens = 0.0, 0
+        self.translator = EventTranslator()
+        self.emit({"type": "run", "id": run.id, "task": run.task, "project": project, "models": models})
 
-    def emit(self, event: dict) -> dict:
-        stored = {"t": round(time.time() - self.started, 2), **event}
+    def emit(self, event: dict) -> None:
         with self.lock:
-            self.events.append(stored)
-        return stored
+            self.events.append({"t": round(time.time() - self.started, 2), **event})
 
     def events_from(self, index: int) -> list[dict]:
         with self.lock:
             return self.events[index:]
-
-    def decide(self, action: str, feedback: str) -> None:
-        raise NotImplementedError
-
-
-class RunSession(Session):
-    """Ein echter Lauf des Teams."""
-
-    def __init__(self, run: Run, models: dict[str, str], project: str) -> None:
-        super().__init__(run.id)
-        self.run, self.models = run, models
-        self.cost, self.tokens = 0.0, 0
-        self.translator = EventTranslator()
-        self.recording = RUNS_DIR / f"{run.id}.events.jsonl"
-        self.emit({"type": "run", "id": run.id, "task": run.task, "project": project, "models": models, "demo": False})
-
-    def emit(self, event: dict) -> dict:
-        stored = super().emit(event)
-        RUNS_DIR.mkdir(exist_ok=True)
-        with self.recording.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(stored, ensure_ascii=False) + "\n")
-        return stored
 
     def start(self, inputs) -> None:
         self.busy = True
@@ -156,46 +128,7 @@ class RunSession(Session):
             self.busy = False
 
 
-class DemoSession(Session):
-    """Spielt eine Aufzeichnung ab, ohne Modell und ohne Kosten."""
-
-    def __init__(self, session_id: str, recording: Path) -> None:
-        super().__init__(session_id)
-        self.recorded = [json.loads(line) for line in recording.read_text(encoding="utf-8").splitlines() if line]
-        self.position = 0
-        self._play_until_pause()
-
-    def _play_until_pause(self) -> None:
-        self.busy = True
-        threading.Thread(target=self._play, daemon=True).start()
-
-    def _play(self) -> None:
-        last_t = None
-        while self.position < len(self.recorded):
-            event = dict(self.recorded[self.position])
-            self.position += 1
-            if event["type"] == "decision":  # Ab hier entscheidet der Zuschauer
-                continue
-            if last_t is not None:
-                time.sleep(min(max(event["t"] - last_t, 0), DEMO_MAX_PAUSE))
-            last_t = event["t"]
-            event.pop("t", None)
-            if event["type"] == "run":
-                event["demo"] = True
-            self.emit(event)
-            if event["type"] in ("review", *FINAL_EVENTS):
-                break
-        self.busy = False
-
-    def decide(self, action: str, feedback: str) -> None:
-        if self.busy:
-            raise HTTPException(409, "Die Aufzeichnung läuft noch.")
-        # In der Demo wird nichts übernommen: Zuschauer sehen nur, wie es weitergeht.
-        self.emit({"type": "decision", "action": action, "text": feedback})
-        self.emit({"type": "done", "outcome": "approve" if action == "approve" else "reject", "files": [], "demo": True})
-
-
-sessions: dict[str, Session] = {}
+sessions: dict[str, RunSession] = {}
 
 
 # --- API --------------------------------------------------------------------------
@@ -232,8 +165,7 @@ def index() -> FileResponse:
 
 @app.get("/api/status")
 def status() -> dict:
-    return {"docker": docker_available(), "models": model_names(), "budget_models": BUDGET_MODELS,
-            "demos": sorted(p.stem for p in DEMO_DIR.glob("*.jsonl"))}
+    return {"docker": docker_available(), "models": model_names(), "budget_models": BUDGET_MODELS}
 
 
 @app.get("/api/projects")
@@ -258,16 +190,6 @@ def start(request: StartRequest) -> dict:
     session = RunSession(run, BUDGET_MODELS if request.budget else model_names(), project["name"])
     sessions[session.id] = session
     session.start({"task": run.task})
-    return {"id": session.id}
-
-
-@app.post("/api/demos/{name}")
-def start_demo(name: str) -> dict:
-    recording = DEMO_DIR / f"{name}.jsonl"
-    if not recording.is_file():
-        raise HTTPException(404, "Unbekannte Aufzeichnung.")
-    session = DemoSession(f"demo-{name}-{time.strftime('%H%M%S')}", recording)
-    sessions[session.id] = session
     return {"id": session.id}
 
 

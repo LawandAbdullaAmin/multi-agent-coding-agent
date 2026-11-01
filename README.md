@@ -213,3 +213,7 @@ tests/           Tests für Werkzeuge, Graph, Läufe, Benchmark und Weboberfläc
 - Größere Projekte: Repo-Map für Codebasen mit vielen Dateien
 - Evaluation auf echten Open-Source-Fehlern (SWE-bench Lite)
 - Kontrollmessung: Beitrag der Architektur getrennt vom Modell
+
+## Lizenz
+
+MIT, siehe [LICENSE](LICENSE). Three.js (MIT) liegt unverändert unter `coding_agent/web/static/vendor/`.

@@ -21,7 +21,7 @@ const ICONS = {
 const $ = (id) => document.getElementById(id);
 const state = {
   project: null, sessionId: null, source: null, cards: {}, steps: 0, unseen: 0, timer: null, elapsed: 0,
-  demo: false, sheetOpen: false, sheetReady: false, previewTimers: [],
+  preview: false, sheetOpen: false, sheetReady: false, previewTimers: [],
 };
 
 const galaxy = new Universe($("space"), $("spaceLabels"));
@@ -109,11 +109,6 @@ async function initStart() {
     $("sandboxToggle").disabled = true;
     $("sandboxHint").textContent = "Docker Desktop läuft nicht";
   }
-  if (status.demos.length) {
-    const demo = $("demoButton");
-    demo.classList.remove("hidden");
-    demo.addEventListener("click", () => startDemo(status.demos[0]));
-  }
 
   $("projectCount").textContent = `${projects.length} Projekte`;
   $("projectGrid").innerHTML = projects.map((p) => `
@@ -147,15 +142,6 @@ async function startRun() {
   } finally {
     button.disabled = false;
     button.querySelector("span").textContent = "Team starten";
-  }
-}
-
-async function startDemo(name) {
-  try {
-    const { id } = await api(`/api/demos/${encodeURIComponent(name)}`, {});
-    openRun(id);
-  } catch (error) {
-    toast(error.message);
   }
 }
 
@@ -291,8 +277,8 @@ function addReport(event) {
 
 const handlers = {
   run(event) {
-    state.demo = event.demo;
-    const source = event.preview ? "Vorschau (simuliert) · " : event.demo ? "Aufzeichnung · " : "";
+    state.preview = Boolean(event.preview);
+    const source = event.preview ? "Vorschau (simuliert) · " : "";
     $("taskProject").textContent = `${source}Projekt ${event.project}`;
     $("taskText").textContent = event.task;
   },
@@ -343,7 +329,7 @@ const handlers = {
     stopTimer();
     state.source?.close();
     if (event.outcome === "approve") {
-      setStatus("success", event.demo ? "Demo beendet" : "Übernommen");
+      setStatus("success", event.preview ? "Vorschau beendet" : "Übernommen");
       showOutcome(true, event);
       galaxy.finish();
     } else {
@@ -402,10 +388,10 @@ function showSheet(event) {
   $("diffToggle").classList.remove("hidden");
   $("diffToggle").textContent = "Änderungen im Detail ansehen";
   $("feedbackInput").value = "";
-  $("feedbackInput").disabled = state.demo;
-  $("feedbackButton").disabled = state.demo;
-  $("feedbackInput").placeholder = state.demo
-    ? "Feedback ist in der Aufzeichnung nicht möglich"
+  $("feedbackInput").disabled = state.preview;
+  $("feedbackButton").disabled = state.preview;
+  $("feedbackInput").placeholder = state.preview
+    ? "Feedback ist in der Vorschau nicht möglich"
     : "Feedback an das Team, z. B. „Fehlermeldungen bitte auf Englisch“";
 }
 
@@ -426,10 +412,10 @@ function showOutcome(approved, event) {
   $("sheetClose").classList.remove("hidden");
   $("sheetClose").textContent = "Zur Galaxie zurück";
   setRing(approved);
-  $("sheetEyebrow").textContent = event.demo ? "Aufzeichnung" : "Abgeschlossen";
+  $("sheetEyebrow").textContent = event.preview ? "Vorschau" : "Abgeschlossen";
   $("sheetTitle").textContent = approved ? "Änderungen übernommen" : "Änderungen verworfen";
   $("sheetSummary").textContent = approved
-    ? (event.demo ? "In der Aufzeichnung wird nichts übernommen. Im echten Lauf landen die Änderungen jetzt im Projekt."
+    ? (event.preview ? "In der Vorschau wird nichts übernommen. Im echten Lauf landen die Änderungen jetzt im Projekt."
       : `Übernommen: ${event.files.join(", ") || "keine Dateien"}.`)
     : "Das Projekt bleibt unverändert.";
 }
@@ -438,7 +424,7 @@ async function decide(action) {
   const feedback = $("feedbackInput").value.trim();
   if (action === "feedback" && !feedback) return toast("Bitte zuerst Feedback eingeben.");
   if (state.sessionId === "preview") {
-    handle({ type: "done", outcome: action === "approve" ? "approve" : "reject", files: [], demo: true });
+    handle({ type: "done", outcome: action === "approve" ? "approve" : "reject", files: [], preview: true });
     return;
   }
   try {

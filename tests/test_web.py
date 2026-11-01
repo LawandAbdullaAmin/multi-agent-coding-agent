@@ -1,4 +1,3 @@
-import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,11 +44,9 @@ class FakeTeam:
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    for module, name in ((runs, "RUNS_DIR"), (server, "RUNS_DIR")):
-        monkeypatch.setattr(module, name, tmp_path / ".runs")
+    monkeypatch.setattr(runs, "RUNS_DIR", tmp_path / ".runs")
     for module in (runs, server):
         monkeypatch.setattr(module, "WORKSPACES_DIR", tmp_path / "workspaces")
-    monkeypatch.setattr(server, "DEMO_DIR", tmp_path / "demo")
     fake = FakeTeam()
     monkeypatch.setattr(server, "build_team_graph", fake.build)
     with TestClient(server.app) as test_client:
@@ -91,33 +88,11 @@ def test_full_run_with_approval(client, tmp_path):
     assert (Path(session.run.repo) / "calculator.py").read_text(encoding="utf-8") == "# behoben\n"
     # Die Benchmark-Aufgabe selbst bleibt unverändert, weil die Oberfläche auf einer Kopie arbeitet.
     assert "# behoben" not in (runs.PROJECT_DIR / "benchmark" / "tasks" / "calculator" / "repo" / "calculator.py").read_text(encoding="utf-8")
-    # Der Lauf wurde für den Demo-Modus aufgezeichnet.
-    recording = tmp_path / ".runs" / f"{run_id}.events.jsonl"
-    assert [json.loads(line)["type"] for line in recording.read_text(encoding="utf-8").splitlines()][-1] == "done"
 
 
 def test_decision_while_busy_or_unknown(client):
     assert client.post("/api/runs/gibt-es-nicht/decision", json={"action": "approve"}).status_code == 404
     assert client.post("/api/runs", json={"project": "gibt-es-nicht", "task": "x"}).status_code == 404
-
-
-def test_demo_replays_recording(client, tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "DEMO_MAX_PAUSE", 0.01)
-    (tmp_path / "demo").mkdir()
-    events = [{"t": 0, "type": "run", "id": "x", "task": "Fix", "project": "roman", "models": {}, "demo": False},
-              {"t": 1, "type": "dispatch", "agent": "explorer", "text": "Schau dir das an"},
-              {"t": 9, "type": "review", "summary": "ok", "tests_passed": True, "files": [], "diff": ""},
-              {"t": 12, "type": "decision", "action": "approve", "text": ""},
-              {"t": 13, "type": "done", "outcome": "approve", "files": ["roman.py"]}]
-    (tmp_path / "demo" / "roman.jsonl").write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
-
-    assert client.get("/api/status").json()["demos"] == ["roman"]
-    session = server.sessions[client.post("/api/demos/roman").json()["id"]]
-    assert wait_for(session, "review") == ["run", "dispatch", "review"]
-    assert session.events[0]["demo"] is True
-
-    client.post(f"/api/runs/{session.id}/decision", json={"action": "approve"})
-    assert session.events[-1] == {**session.events[-1], "type": "done", "outcome": "approve", "files": [], "demo": True}
 
 
 def test_translator_humanizes_tools():

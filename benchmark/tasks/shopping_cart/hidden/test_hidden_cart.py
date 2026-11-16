@@ -11,10 +11,10 @@ def test_given_list_is_not_modified():
 
 def test_zero_discount():
     cart = Cart()
-    cart.add("Buch", 12.5)
+    cart.add("Book", 12.5)
     assert cart.total_with_discount(0) == 12.5
 
 
 def test_new_cart_is_empty():
-    Cart().add("Apfel", 1.0)
+    Cart().add("Apple", 1.0)
     assert Cart().total() == 0

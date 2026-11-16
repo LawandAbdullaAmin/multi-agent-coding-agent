@@ -1,7 +1,7 @@
-"""Übersetzt den Stream des Team-Graphen in verständliche Ereignisse für die Weboberfläche.
+"""Translates the team graph's stream into readable events for the web interface.
 
-Die Oberfläche zeigt keinen Code und keine Rohausgaben, sondern Sätze wie
-"Liest calculator.py" oder "4 von 6 Tests fehlgeschlagen".
+The interface shows no code and no raw output, but sentences such as
+"Reads calculator.py" or "4 of 6 tests failed".
 """
 
 import re
@@ -15,14 +15,14 @@ from coding_agent.tools import tests_green
 def describe_tool_call(name: str, args: dict) -> str:
     path = args.get("path", "")
     if name == "run_tests":
-        return f"Führt die Tests in {args['target']} aus" if args.get("target") else "Führt alle Tests aus"
+        return f"Runs the tests in {args['target']}" if args.get("target") else "Runs all tests"
     return {
-        "list_files": "Verschafft sich einen Überblick über das Projekt",
-        "read_file": f"Liest {path}",
-        "search_code": f"Sucht im Code nach „{args.get('pattern', '')}“",
-        "write_file": f"Schreibt {path}",
-        "edit_file": f"Ändert {path}",
-        "show_changes": "Prüft alle Änderungen",
+        "list_files": "Gets an overview of the project",
+        "read_file": f"Reads {path}",
+        "search_code": f"Searches the code for “{args.get('pattern', '')}”",
+        "write_file": f"Writes {path}",
+        "edit_file": f"Edits {path}",
+        "show_changes": "Reviews all changes",
     }.get(name, name)
 
 
@@ -30,17 +30,17 @@ def summarize_tests(output: str) -> tuple[str, bool]:
     passed = int(match.group(1)) if (match := re.search(r"(\d+) passed", output)) else 0
     failed = sum(int(n) for n in re.findall(r"(\d+) (?:failed|errors?)\b", output))
     if tests_green(output):
-        return f"{passed} Tests bestanden", True
+        return f"{passed} tests passed", True
     if passed + failed == 0:
-        return "Tests konnten nicht ausgeführt werden", False
-    return f"{failed} von {passed + failed} Tests fehlgeschlagen", False
+        return "Tests could not be run", False
+    return f"{failed} of {passed + failed} tests failed", False
 
 
 def describe_tool_result(name: str, content: str, error: bool) -> tuple[str, bool] | None:
-    """Kurzfassung eines Werkzeugergebnisses, oder None, wenn es nicht erwähnenswert ist."""
+    """Short summary of a tool result, or None if it is not worth mentioning."""
     if error:
-        if "darf nicht geändert werden" in content:
-            return "Schreibschutz greift: Zugriff verweigert", False
+        if "must not be changed" in content:
+            return "Write protection kicked in: access denied", False
         return content.splitlines()[0][:160], False
     if name == "run_tests":
         return summarize_tests(content)
@@ -48,19 +48,19 @@ def describe_tool_result(name: str, content: str, error: bool) -> tuple[str, boo
 
 
 class EventTranslator:
-    """Merkt sich offene Werkzeugaufrufe, um Ergebnisse dem richtigen Aufruf zuzuordnen."""
+    """Keeps track of open tool calls to match results to the right call."""
 
     def __init__(self) -> None:
         self.pending: dict[str, str] = {}
 
     def translate(self, namespace: tuple, node: str, update: dict) -> list[dict]:
-        if namespace:  # Schritt innerhalb eines Fach-Agenten, z. B. ("developer:<id>",)
+        if namespace:  # step inside a specialist agent, e.g. ("developer:<id>",)
             return self._agent_step(namespace[0].split(":")[0], update)
 
         events = []
         reports = update.get("reports") or []
         if node == "supervisor":
-            for report in reports:  # Hinweis der Guardrail, falls ein Abschluss abgelehnt wurde
+            for report in reports:  # guardrail notice if finishing was rejected
                 events.append({"type": "guardrail", "text": report["result"]})
             target = update["next"]
             text = update.get("summary" if target == "finish" else "instruction", "")
@@ -69,10 +69,10 @@ class EventTranslator:
             for report in reports:
                 event = {"type": "report", "agent": node, "model": report.get("model", ""), "text": report["result"]}
                 if node == "reviewer":
-                    event["approved"] = report["result"].startswith("Freigegeben: ja")
+                    event["approved"] = report["result"].startswith("Approved: yes")
                 events.append(event)
         else:
-            for report in reports:  # Feedback des Menschen aus dem Knoten review
+            for report in reports:  # human feedback from the review node
                 events.append({"type": "feedback", "text": report["result"]})
         return events
 

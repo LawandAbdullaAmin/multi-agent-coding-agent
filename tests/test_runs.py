@@ -22,7 +22,7 @@ def test_save_and_load_run():
 
 def test_load_unknown_run_fails():
     with pytest.raises(FileNotFoundError):
-        load_run("gibt-es-nicht")
+        load_run("does-not-exist")
 
 
 class State(TypedDict, total=False):
@@ -31,7 +31,7 @@ class State(TypedDict, total=False):
 
 def build_graph(checkpointer):
     graph = StateGraph(State)
-    graph.add_node("ask", lambda state: {"answer": interrupt("Frage")})
+    graph.add_node("ask", lambda state: {"answer": interrupt("Question")})
     graph.add_edge(START, "ask")
     graph.add_edge("ask", END)
     return graph.compile(checkpointer=checkpointer)
@@ -42,7 +42,7 @@ def test_interrupted_run_can_be_resumed_after_restart():
 
     first = open_checkpointer()
     build_graph(first).invoke({}, config)
-    first.conn.close()  # simuliert: Programm beendet
+    first.conn.close()  # simulates: program exited
 
     second = open_checkpointer()
     app = build_graph(second)

@@ -4,10 +4,10 @@ from coding_agent.runs import apply_changes, changed_files, diff_text
 
 def test_parse_review_answer():
     assert parse_review_answer("") == {"action": "approve"}
-    assert parse_review_answer(" Ja ") == {"action": "approve"}
-    assert parse_review_answer("﻿j") == {"action": "approve"}
+    assert parse_review_answer(" Yes ") == {"action": "approve"}
+    assert parse_review_answer("﻿y") == {"action": "approve"}
     assert parse_review_answer("n") == {"action": "reject"}
-    assert parse_review_answer("Bitte auf Englisch") == {"action": "feedback", "feedback": "Bitte auf Englisch"}
+    assert parse_review_answer("Please add type hints") == {"action": "feedback", "feedback": "Please add type hints"}
 
 
 def test_apply_changes_copies_only_changed_and_new_files(tmp_path):

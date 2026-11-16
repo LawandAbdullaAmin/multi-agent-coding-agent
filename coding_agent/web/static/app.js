@@ -1,4 +1,4 @@
-// Weboberfläche des Coding-Agenten: Ereignisse vom Server (Server-Sent Events) in Feed und 3D-Szene umsetzen.
+// Web interface of the coding agent: turns server events (server-sent events) into the feed and the 3D scene.
 
 import { AGENTS, SUPERVISOR, Universe } from "./galaxy.js";
 import { PREVIEW_EVENTS } from "./preview.js";
@@ -28,7 +28,7 @@ const galaxy = new Universe($("space"), $("spaceLabels"));
 galaxy.anchor($("heroGalaxy"));
 galaxy.idle(true);
 
-// ---------- Hilfsfunktionen ----------
+// ---------- Helpers ----------
 
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
@@ -42,7 +42,7 @@ function escapeHtml(text) {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
-// Kleine Markdown-Untermenge für die Berichte: **fett**, `code`, Aufzählungen, Absätze.
+// Small Markdown subset for the reports: **bold**, `code`, lists, paragraphs.
 function formatText(text) {
   const inline = (line) => escapeHtml(line)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
@@ -67,7 +67,7 @@ function tween(element, to, format, duration = 700) {
   const start = performance.now();
   element.dataset.value = to;
   const frame = () => {
-    // performance.now() statt der Zeit von requestAnimationFrame: beide können voneinander abweichen
+    // performance.now() instead of the requestAnimationFrame time: the two can differ
     const p = Math.min(Math.max((performance.now() - start) / duration, 0), 1);
     element.textContent = format(from + (to - from) * (1 - Math.pow(1 - p, 3)));
     if (p < 1) requestAnimationFrame(frame);
@@ -89,28 +89,28 @@ async function api(path, body) {
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
-    throw new Error(detail.detail || `Fehler ${response.status}`);
+    throw new Error(detail.detail || `Error ${response.status}`);
   }
   return response.json();
 }
 
-// ---------- Startseite ----------
+// ---------- Start page ----------
 
 async function initStart() {
   const [status, projects] = await Promise.all([api("/api/status"), api("/api/projects")]);
-  $("budgetHint").textContent = `alle Rollen mit ${status.budget_models.fast}`;
+  $("budgetHint").textContent = `all roles on ${status.budget_models.fast}`;
   $("budgetToggle").addEventListener("change", (e) => {
     $("costHint").textContent = e.target.checked
-      ? "Geschätzte Kosten pro Lauf: etwa 1–3 Cent"
-      : `Urteilende Rollen mit ${status.models.strong}: etwa 5–10 Cent pro Lauf`;
+      ? "Estimated cost per run: about 1–3 cents"
+      : `Judging roles on ${status.models.strong}: about 5–10 cents per run`;
   });
   if (!status.docker) {
     $("sandboxToggle").checked = false;
     $("sandboxToggle").disabled = true;
-    $("sandboxHint").textContent = "Docker Desktop läuft nicht";
+    $("sandboxHint").textContent = "Docker Desktop is not running";
   }
 
-  $("projectCount").textContent = `${projects.length} Projekte`;
+  $("projectCount").textContent = `${projects.length} projects`;
   $("projectGrid").innerHTML = projects.map((p) => `
     <button class="project" data-id="${p.id}">
       <div class="project-name">${escapeHtml(p.name)}</div>
@@ -130,7 +130,7 @@ async function initStart() {
 async function startRun() {
   const button = $("startButton");
   button.disabled = true;
-  button.querySelector("span").textContent = "Team wird gestartet …";
+  button.querySelector("span").textContent = "Starting team …";
   try {
     const { id } = await api("/api/runs", {
       project: state.project.id, task: $("taskInput").value,
@@ -141,18 +141,18 @@ async function startRun() {
     toast(error.message);
   } finally {
     button.disabled = false;
-    button.querySelector("span").textContent = "Team starten";
+    button.querySelector("span").textContent = "Start team";
   }
 }
 
-// ---------- Laufansicht ----------
+// ---------- Run view ----------
 
 function openRun(id) {
   state.source?.close();
   stopPreview();
   Object.assign(state, { sessionId: id, cards: {}, steps: 0, unseen: 0, elapsed: 0, sheetReady: false });
   $("feed").innerHTML = "";
-  $("feedCount").textContent = "0 Schritte";
+  $("feedCount").textContent = "0 steps";
   $("newSteps").classList.add("hidden");
   for (const key of ["statCost", "statTokens"]) $(key).dataset.value = 0;
   $("statCost").textContent = "$0.000";
@@ -166,11 +166,11 @@ function openRun(id) {
   $("runScreen").classList.remove("hidden");
   $("runMeta").classList.remove("hidden");
   window.scrollTo({ top: 0 });
-  setStatus("working", "Team arbeitet");
+  setStatus("working", "Team is working");
   startTimer();
 
   if (id === "preview") {
-    // Simulierter Lauf ohne Server und ohne Kosten, z. B. zum Vorführen der Oberfläche
+    // Simulated run without a server and without cost, e.g. for demonstrating the interface
     state.previewTimers = PREVIEW_EVENTS.map(([at, event]) => setTimeout(() => handle(event), at));
     return;
   }
@@ -198,14 +198,14 @@ function startTimer() {
 
 function stopTimer() { clearInterval(state.timer); }
 
-// Der Verlauf scrollt nie von selbst. Liegt Neues außerhalb des sichtbaren Bereichs,
-// erscheint ein Knopf, mit dem man selbst nach unten springen kann.
+// The feed never scrolls by itself. If something new is outside the visible area,
+// a button appears that lets you jump down yourself.
 function noteNew(element) {
   const feed = $("feed");
   if (element.offsetTop + element.offsetHeight <= feed.scrollTop + feed.clientHeight + 4) return;
   state.unseen += 1;
   const button = $("newSteps");
-  button.textContent = `↓ ${state.unseen} ${state.unseen === 1 ? "neuer Schritt" : "neue Schritte"}`;
+  button.textContent = `↓ ${state.unseen} ${state.unseen === 1 ? "new step" : "new steps"}`;
   button.classList.remove("hidden");
 }
 
@@ -216,7 +216,7 @@ function clearUnseen() {
 
 function countStep() {
   state.steps += 1;
-  $("feedCount").textContent = `${state.steps} Schritte`;
+  $("feedCount").textContent = `${state.steps} steps`;
 }
 
 function addCard(html, className = "", color = SUPERVISOR.color) {
@@ -258,12 +258,12 @@ function addReport(event) {
   card.querySelector(".typing")?.remove();
   if (event.model) card.querySelector(".card-head").insertAdjacentHTML("beforeend", `<span class="model-tag">${escapeHtml(event.model)}</span>`);
   const verdict = event.approved === undefined ? "" : event.approved
-    ? `<span class="verdict yes">${icon("check")} Freigegeben</span>`
-    : `<span class="verdict no">${icon("x")} Nachbesserung nötig</span>`;
-  const text = event.text.replace(/^Freigegeben: (ja|nein)\.\s*/, "");
+    ? `<span class="verdict yes">${icon("check")} Approved</span>`
+    : `<span class="verdict no">${icon("x")} Needs rework</span>`;
+  const text = event.text.replace(/^Approved: (yes|no)\.\s*/, "");
   const short = text.length > 340 ? text.slice(0, 340).replace(/\s+\S*$/, "") + " …" : text;
   card.insertAdjacentHTML("beforeend", `<div class="report">${verdict}<div class="report-text">${formatText(short)}</div>
-    ${short !== text ? '<button class="more">Ganzen Bericht anzeigen</button>' : ""}</div>`);
+    ${short !== text ? '<button class="more">Show full report</button>' : ""}</div>`);
   card.querySelector(".more")?.addEventListener("click", (e) => {
     card.querySelector(".report-text").innerHTML = formatText(text);
     e.target.remove();
@@ -273,20 +273,20 @@ function addReport(event) {
   galaxy.report(event.agent, event.model);
 }
 
-// ---------- Ereignisse vom Server ----------
+// ---------- Events from the server ----------
 
 const handlers = {
   run(event) {
     state.preview = Boolean(event.preview);
-    const source = event.preview ? "Vorschau (simuliert) · " : "";
-    $("taskProject").textContent = `${source}Projekt ${event.project}`;
+    const source = event.preview ? "Preview (simulated) · " : "";
+    $("taskProject").textContent = `${source}Project ${event.project}`;
     $("taskText").textContent = event.task;
   },
   dispatch(event) {
     if (event.agent === "finish") {
       galaxy.finish();
       addCard(`<div class="card-head">${avatar(SUPERVISOR)}<div><div class="card-title">Supervisor</div>
-        <div class="card-sub">Arbeit abgeschlossen</div></div></div>${event.text ? `<div class="report">${formatText(event.text)}</div>` : ""}`);
+        <div class="card-sub">Work finished</div></div></div>${event.text ? `<div class="report">${formatText(event.text)}</div>` : ""}`);
       return;
     }
     galaxy.dispatch(event.agent);
@@ -299,47 +299,47 @@ const handlers = {
   guardrail(event) {
     galaxy.guardrail();
     addCard(`<div class="card-head"><div class="avatar" style="--c:var(--amber)">${icon("alert")}</div>
-      <div><div class="card-title">Guardrail</div><div class="card-sub">Abschluss blockiert, noch nicht verifiziert</div></div></div>
+      <div><div class="card-title">Guardrail</div><div class="card-sub">Finish blocked, not verified yet</div></div></div>
       <p class="instruction">${escapeHtml(event.text)}</p>`, "guard", "#fbbf24");
     countStep();
   },
   feedback(event) {
-    addCard(`<div class="card-head">${avatar({ color: "#e2e8f0", icon: "user" })}<div><div class="card-title">Dein Feedback</div>
-      <div class="card-sub">an den Supervisor</div></div></div><p class="instruction">${escapeHtml(event.text)}</p>`, "", "#e2e8f0");
+    addCard(`<div class="card-head">${avatar({ color: "#e2e8f0", icon: "user" })}<div><div class="card-title">Your feedback</div>
+      <div class="card-sub">to the supervisor</div></div></div><p class="instruction">${escapeHtml(event.text)}</p>`, "", "#e2e8f0");
   },
   decision(event) {
     if (event.action === "feedback") {
       state.sheetReady = false;
       hideSheet();
-      setStatus("working", "Team arbeitet");
+      setStatus("working", "Team is working");
       startTimer();
     }
   },
   stats(event) {
     tween($("statCost"), event.cost, (v) => `$${v.toFixed(3)}`);
-    tween($("statTokens"), event.tokens, (v) => Math.round(v).toLocaleString("de-DE"));
+    tween($("statTokens"), event.tokens, (v) => Math.round(v).toLocaleString("en-US"));
   },
   review(event) {
     stopTimer();
-    setStatus("waiting", "Wartet auf Freigabe");
-    // Erst die Abschluss-Schockwelle in der Galaxie zeigen, dann das Ergebnis.
+    setStatus("waiting", "Waiting for approval");
+    // Show the finish shockwave in the galaxy first, then the result.
     setTimeout(() => showSheet(event), 1600);
   },
   done(event) {
     stopTimer();
     state.source?.close();
     if (event.outcome === "approve") {
-      setStatus("success", event.preview ? "Vorschau beendet" : "Übernommen");
+      setStatus("success", event.preview ? "Preview finished" : "Applied");
       showOutcome(true, event);
       galaxy.finish();
     } else {
-      setStatus("stopped", "Verworfen");
+      setStatus("stopped", "Discarded");
       showOutcome(false, event);
     }
   },
   error(event) {
     stopTimer();
-    setStatus("failed", "Fehler");
+    setStatus("failed", "Error");
     state.source?.close();
     toast(event.message);
   },
@@ -349,7 +349,7 @@ function handle(event) {
   (handlers[event.type] || (() => {}))(event);
 }
 
-// ---------- Ergebnis ----------
+// ---------- Result ----------
 
 function openSheet() {
   state.sheetOpen = state.sheetReady = true;
@@ -369,16 +369,16 @@ function showSheet(event) {
   openSheet();
   $("sheetActions").classList.remove("hidden");
   $("sheetClose").classList.remove("hidden");
-  $("sheetClose").textContent = "Erst noch die Galaxie ansehen";
-  $("sheetEyebrow").textContent = passed ? "Alle Tests bestanden" : "Tests nicht bestanden";
-  $("sheetTitle").textContent = "Bereit zur Freigabe";
-  $("sheetSummary").innerHTML = formatText(event.summary || "Das Team ist fertig.");
+  $("sheetClose").textContent = "Look at the galaxy first";
+  $("sheetEyebrow").textContent = passed ? "All tests passed" : "Tests failed";
+  $("sheetTitle").textContent = "Ready for approval";
+  $("sheetSummary").innerHTML = formatText(event.summary || "The team is done.");
   setRing(passed);
 
   $("fileChips").innerHTML = event.files.map((f) => `
-    <span class="file-chip">${icon("file")}${escapeHtml(f.path)}${f.new ? " · neu" : ""}
+    <span class="file-chip">${icon("file")}${escapeHtml(f.path)}${f.new ? " · new" : ""}
       <span class="add">+${f.added}</span><span class="del">−${f.removed}</span></span>`).join("")
-    || '<span class="muted">Keine Dateien geändert.</span>';
+    || '<span class="muted">No files changed.</span>';
   $("diffView").innerHTML = event.diff.split("\n").map((line) => {
     const cls = line.startsWith("+++") || line.startsWith("---") ? "file"
       : line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "";
@@ -386,13 +386,13 @@ function showSheet(event) {
   }).join("");
   $("diffView").classList.add("hidden");
   $("diffToggle").classList.remove("hidden");
-  $("diffToggle").textContent = "Änderungen im Detail ansehen";
+  $("diffToggle").textContent = "View changes in detail";
   $("feedbackInput").value = "";
   $("feedbackInput").disabled = state.preview;
   $("feedbackButton").disabled = state.preview;
   $("feedbackInput").placeholder = state.preview
-    ? "Feedback ist in der Vorschau nicht möglich"
-    : "Feedback an das Team, z. B. „Fehlermeldungen bitte auf Englisch“";
+    ? "Feedback is not available in the preview"
+    : "Feedback for the team, e.g. “Please add type hints”";
 }
 
 function setRing(success) {
@@ -410,19 +410,19 @@ function showOutcome(approved, event) {
   $("diffToggle").classList.add("hidden");
   $("diffView").classList.add("hidden");
   $("sheetClose").classList.remove("hidden");
-  $("sheetClose").textContent = "Zur Galaxie zurück";
+  $("sheetClose").textContent = "Back to the galaxy";
   setRing(approved);
-  $("sheetEyebrow").textContent = event.preview ? "Vorschau" : "Abgeschlossen";
-  $("sheetTitle").textContent = approved ? "Änderungen übernommen" : "Änderungen verworfen";
+  $("sheetEyebrow").textContent = event.preview ? "Preview" : "Finished";
+  $("sheetTitle").textContent = approved ? "Changes applied" : "Changes discarded";
   $("sheetSummary").textContent = approved
-    ? (event.preview ? "In der Vorschau wird nichts übernommen. Im echten Lauf landen die Änderungen jetzt im Projekt."
-      : `Übernommen: ${event.files.join(", ") || "keine Dateien"}.`)
-    : "Das Projekt bleibt unverändert.";
+    ? (event.preview ? "Nothing is applied in the preview. In a real run, the changes would now land in the project."
+      : `Applied: ${event.files.join(", ") || "no files"}.`)
+    : "The project stays unchanged.";
 }
 
 async function decide(action) {
   const feedback = $("feedbackInput").value.trim();
-  if (action === "feedback" && !feedback) return toast("Bitte zuerst Feedback eingeben.");
+  if (action === "feedback" && !feedback) return toast("Please enter feedback first.");
   if (state.sessionId === "preview") {
     handle({ type: "done", outcome: action === "approve" ? "approve" : "reject", files: [], preview: true });
     return;
@@ -434,7 +434,7 @@ async function decide(action) {
   }
 }
 
-// ---------- Bedienelemente ----------
+// ---------- Controls ----------
 
 $("approveButton").addEventListener("click", () => decide("approve"));
 $("rejectButton").addEventListener("click", () => decide("reject"));
@@ -442,11 +442,11 @@ $("feedbackButton").addEventListener("click", () => decide("feedback"));
 $("feedbackInput").addEventListener("keydown", (e) => { if (e.key === "Enter") decide("feedback"); });
 $("diffToggle").addEventListener("click", () => {
   const hidden = $("diffView").classList.toggle("hidden");
-  $("diffToggle").textContent = hidden ? "Änderungen im Detail ansehen" : "Details ausblenden";
+  $("diffToggle").textContent = hidden ? "View changes in detail" : "Hide details";
 });
 $("sheetClose").addEventListener("click", hideSheet);
 $("sheetBackdrop").addEventListener("click", hideSheet);
-// Über die Statusanzeige lässt sich ein geschlossenes Ergebnis wieder öffnen.
+// The status pill reopens a closed result.
 $("statusPill").addEventListener("click", () => {
   if (state.sheetReady && !state.sheetOpen) openSheet();
 });
@@ -474,7 +474,7 @@ $("newRun").addEventListener("click", () => {
 $("previewButton").addEventListener("click", () => openRun("preview"));
 initStart().catch(showcaseMode);
 
-// Ohne Server (z. B. auf GitHub Pages) nur die kostenlose, simulierte Vorschau anbieten
+// Without a server (e.g. on GitHub Pages) only offer the free, simulated preview
 function showcaseMode() {
   document.querySelector(".launch:not(.showcase)").classList.add("hidden");
   $("showcasePanel").classList.remove("hidden");

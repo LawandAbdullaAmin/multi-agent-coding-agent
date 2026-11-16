@@ -1,10 +1,10 @@
-"""Römische Zahlen."""
+"""Roman numerals."""
 
 
 def roman_to_int(text: str) -> int:
-    """Wandelt eine römische Zahl in eine ganze Zahl um, z. B. "XIV" -> 14.
+    """Converts a Roman numeral into an integer, e.g. "XIV" -> 14.
 
-    Erlaubt sind die Zeichen I, V, X, L, C, D und M. Bei anderen Zeichen
-    oder einem leeren Text wird ein ValueError geworfen.
+    The allowed characters are I, V, X, L, C, D and M. For other characters
+    or an empty text, a ValueError is raised.
     """
     raise NotImplementedError

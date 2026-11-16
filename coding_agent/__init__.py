@@ -1,1 +1,1 @@
-"""Autonomer Coding-Agent mit LangGraph."""
+"""Autonomous coding agent built with LangGraph."""

@@ -1,13 +1,13 @@
-"""Evaluation des Teams auf dem eigenen Benchmark.
+"""Evaluation of the team on the project's own benchmark.
 
-    python -m coding_agent.evaluate                      # alle Aufgaben
+    python -m coding_agent.evaluate                      # all tasks
     python -m coding_agent.evaluate --tasks roman orders --repeats 3
 
-Für jede Aufgabe aus benchmark/tasks/:
-1. Das Team arbeitet ohne Freigabe auf einer Kopie von repo/.
-2. Bewertet wird mit den Original-Tests aus repo/ (auch wenn das Team Tests verändert hat)
-   plus versteckten Tests aus hidden/, die das Team nie gesehen hat.
-3. Gemessen werden Erfolg, Dauer, Tokens und geschätzte Kosten.
+For every task in benchmark/tasks/:
+1. The team works without approval on a copy of repo/.
+2. Grading uses the original tests from repo/ (even if the team changed tests)
+   plus hidden tests from hidden/ that the team has never seen.
+3. Success, duration, tokens and estimated cost are measured.
 """
 
 import argparse
@@ -30,8 +30,8 @@ TASKS_DIR = PROJECT_DIR / "benchmark" / "tasks"
 RESULTS_DIR = PROJECT_DIR / "benchmark" / "results"
 EVAL_DIR = WORKSPACES_DIR / "eval"
 
-# US-Dollar pro 1 Mio. Tokens (Eingabe, Ausgabe) laut OpenAI-Preisliste. Rabatte für
-# gecachte Eingaben sind nicht berücksichtigt, die Kosten sind also eher zu hoch geschätzt.
+# US dollars per 1M tokens (input, output) according to the OpenAI price list. Discounts for
+# cached input are not taken into account, so the costs tend to be overestimated.
 PRICES = {"gpt-4.1-mini": (0.40, 1.60), "gpt-4.1-nano": (0.10, 0.40), "gpt-4.1": (2.00, 8.00)}
 
 
@@ -42,7 +42,7 @@ class Task:
     description: str
     difficulty: str
     kind: str
-    allow_test_changes: bool  # z. B. wenn die Aufgabe verlangt, Tests zu ergänzen
+    allow_test_changes: bool  # e.g. when the task asks for tests to be added
 
 
 @dataclass
@@ -75,7 +75,7 @@ def find_test_files(folder: Path) -> list[Path]:
 
 
 def grade(task: Task, workspace: Path, grading_dir: Path, sandbox: bool = True) -> tuple[bool, bool, str]:
-    """Bewertet einen Workspace. Gibt (bestanden, Tests verändert, Testausgabe) zurück."""
+    """Grades a workspace. Returns (passed, tests modified, test output)."""
     repo = task.path / "repo"
     originals = find_test_files(repo)
     tests_modified = any(
@@ -93,7 +93,7 @@ def grade(task: Task, workspace: Path, grading_dir: Path, sandbox: bool = True) 
 
 
 def estimate_cost(usage: dict) -> float | None:
-    """Kosten in US-Dollar aus den Token-Zahlen je Modell, None bei unbekanntem Modell."""
+    """Cost in US dollars from the token counts per model, None for an unknown model."""
     total = 0.0
     for model, tokens in usage.items():
         prefix = max((p for p in PRICES if model.startswith(p)), key=len, default=None)
@@ -115,7 +115,7 @@ def run_one(task: Task, repeat: int, run_dir: Path, sandbox: bool) -> Result:
     with get_usage_metadata_callback() as usage_callback:
         try:
             build_team_graph(workspace, sandbox, human_review=False).invoke({"task": task.description}, config)
-        except Exception as e:  # Ein abgestürzter Lauf zählt als nicht gelöst, die Evaluation läuft weiter.
+        except Exception as e:  # A crashed run counts as unsolved; the evaluation continues.
             error = f"{type(e).__name__}: {e}"
     seconds = time.perf_counter() - start
 
@@ -135,13 +135,13 @@ def summarize(results: list[Result], tasks: list[Task]) -> str:
     solved = sum(r.passed for r in results)
     costs = [r.cost_usd for r in results if r.cost_usd is not None]
     cost = f"${sum(costs) / len(costs):.4f}" if costs else "?"
-    lines = ["| Gelöst | Ø Dauer | Ø Tokens | Ø Kosten | Tests verändert |", "|---|---|---|---|---|",
+    lines = ["| Solved | Avg. duration | Avg. tokens | Avg. cost | Tests modified |", "|---|---|---|---|---|",
              f"| {solved}/{len(results)} ({100 * solved / len(results):.0f} %) "
              f"| {sum(r.seconds for r in results) / len(results):.0f} s "
              f"| {sum(r.input_tokens + r.output_tokens for r in results) // len(results):,} "
              f"| {cost} | {sum(r.tests_modified for r in results)} |"]
 
-    lines += ["", "| Aufgabe | Schwierigkeit | Art | Gelöst |", "|---|---|---|---|"]
+    lines += ["", "| Task | Difficulty | Kind | Solved |", "|---|---|---|---|"]
     for task in tasks:
         rs = [r for r in results if r.task == task.name]
         ok = sum(r.passed for r in rs)
@@ -154,11 +154,11 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Evaluation des Coding-Agenten")
-    parser.add_argument("--tasks", nargs="+", help="Nur diese Aufgaben (Ordnernamen in benchmark/tasks)")
-    parser.add_argument("--repeats", type=int, default=1, help="Läufe pro Aufgabe")
-    parser.add_argument("--workers", type=int, default=4, help="Parallele Läufe")
-    parser.add_argument("--no-sandbox", action="store_true", help="Tests lokal statt im Docker-Container")
+    parser = argparse.ArgumentParser(description="Evaluation of the coding agent")
+    parser.add_argument("--tasks", nargs="+", help="Only these tasks (folder names in benchmark/tasks)")
+    parser.add_argument("--repeats", type=int, default=1, help="Runs per task")
+    parser.add_argument("--workers", type=int, default=4, help="Parallel runs")
+    parser.add_argument("--no-sandbox", action="store_true", help="Run tests locally instead of in the Docker container")
     args = parser.parse_args()
 
     sandbox = not args.no_sandbox
@@ -168,7 +168,7 @@ def main() -> None:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     run_dir = EVAL_DIR / stamp
     jobs = [(task, repeat) for task in tasks for repeat in range(1, args.repeats + 1)]
-    print(f"{len(tasks)} Aufgaben x {args.repeats} Wiederholungen = {len(jobs)} Läufe\n")
+    print(f"{len(tasks)} tasks x {args.repeats} repeats = {len(jobs)} runs\n")
 
     results = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -177,19 +177,19 @@ def main() -> None:
             r = future.result()
             results.append(r)
             status = "✅" if r.passed else "❌"
-            note = (" (Tests verändert)" if r.tests_modified else "") + (f" [{r.error[:80]}]" if r.error else "")
+            note = (" (tests modified)" if r.tests_modified else "") + (f" [{r.error[:80]}]" if r.error else "")
             print(f"[{len(results):>2}/{len(jobs)}] {status} {r.task:<14} {r.seconds:>5.0f} s{note}")
 
     results.sort(key=lambda r: (r.task, r.repeat))
     report = summarize(results, tasks)
     models = model_names()
-    header = (f"# Evaluation {stamp}\n\nModelle: günstig `{models['fast']}`, stark `{models['strong']}`, "
-              f"Wiederholungen: {args.repeats}\n\n")
+    header = (f"# Evaluation {stamp}\n\nModels: cheap `{models['fast']}`, strong `{models['strong']}`, "
+              f"repeats: {args.repeats}\n\n")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     (RESULTS_DIR / f"{stamp}.json").write_text(
         json.dumps([asdict(r) for r in results], indent=2, ensure_ascii=False), encoding="utf-8")
     (RESULTS_DIR / f"{stamp}.md").write_text(header + report + "\n", encoding="utf-8")
-    print("\n" + report + f"\n\nGespeichert in {RESULTS_DIR / stamp}.md/.json")
+    print("\n" + report + f"\n\nSaved to {RESULTS_DIR / stamp}.md/.json")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Bankkonten."""
+"""Bank accounts."""
 
 
 class InsufficientFunds(Exception):
@@ -11,21 +11,21 @@ class Account:
         self.balance = balance
 
     def deposit(self, amount: float) -> None:
-        """Zahlt einen positiven Betrag ein, sonst ValueError."""
+        """Deposits a positive amount, otherwise ValueError."""
         if amount <= 0:
-            raise ValueError("Betrag muss positiv sein")
+            raise ValueError("Amount must be positive")
         self.balance += amount
 
     def withdraw(self, amount: float) -> None:
-        """Hebt einen positiven Betrag ab. Wirft InsufficientFunds, wenn das Guthaben nicht reicht."""
+        """Withdraws a positive amount. Raises InsufficientFunds if the balance is not sufficient."""
         if amount <= 0:
-            raise ValueError("Betrag muss positiv sein")
+            raise ValueError("Amount must be positive")
         if amount > self.balance:
-            raise InsufficientFunds(f"Guthaben {self.balance} reicht nicht für {amount}")
+            raise InsufficientFunds(f"Balance {self.balance} is not sufficient for {amount}")
         self.balance -= amount
 
 
 def transfer(source: Account, target: Account, amount: float) -> None:
-    """Überweist amount von source an target. Schlägt sie fehl, bleiben beide Konten unverändert."""
+    """Transfers amount from source to target. If the transfer fails, both accounts stay unchanged."""
     source.withdraw(amount)
     target.deposit(amount)

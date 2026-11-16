@@ -1,1 +1,1 @@
-{"difficulty": "mittel", "kind": "Neue Funktion implementieren", "task": "Implementiere die Funktion roman_to_int in roman.py, sodass alle Tests erfolgreich durchlaufen."}
+{"difficulty": "medium", "kind": "Implement a new function", "task": "Implement the function roman_to_int in roman.py so that all tests pass."}

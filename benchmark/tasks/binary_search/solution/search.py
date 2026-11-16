@@ -1,8 +1,8 @@
-"""Suchen in sortierten Listen."""
+"""Searching in sorted lists."""
 
 
 def binary_search(items: list[int], target: int) -> int:
-    """Index von target in der aufsteigend sortierten Liste items, -1 wenn nicht enthalten."""
+    """Index of target in the ascending sorted list items, -1 if not contained."""
     lo, hi = 0, len(items) - 1
     while lo <= hi:
         mid = (lo + hi) // 2

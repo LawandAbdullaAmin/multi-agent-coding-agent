@@ -1,5 +1,5 @@
-# Sandbox, in der der Agent die Tests ausführt.
-# Das Repository wird beim Start schreibgeschützt nach /repo eingebunden.
+# Sandbox in which the agent runs the tests.
+# The repository is mounted read-only at /repo on start.
 FROM python:3.12-slim
 
 RUN pip install --no-cache-dir pytest==9.2.0

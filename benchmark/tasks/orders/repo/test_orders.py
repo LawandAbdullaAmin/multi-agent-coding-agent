@@ -6,8 +6,8 @@ def test_total_cents():
 
 
 def test_invoice_line_with_cents():
-    assert invoice_line([10.05]) == "Gesamt: 10,05 €"
+    assert invoice_line([10.05]) == "Total: 10,05 €"
 
 
 def test_invoice_line_round_amount():
-    assert invoice_line([5.0, 5.0]) == "Gesamt: 10,00 €"
+    assert invoice_line([5.0, 5.0]) == "Total: 10,00 €"

@@ -1,10 +1,10 @@
-"""Kommandozeile: python -m coding_agent --repo <ordner> "<aufgabe>"
+"""Command line: python -m coding_agent --repo <folder> "<task>"
 
-Das Team (Supervisor mit Fach-Agenten) arbeitet auf einer Kopie des Repositorys
-im Ordner workspaces/. Am Ende zeigt es die Änderungen als Diff und fragt nach einer
-Freigabe: Erst dann werden sie ins Repository übernommen.
-Mit --in-place wird das Repository direkt geändert (ohne Freigabe).
-Jeder Lauf wird gespeichert und kann mit --resume <lauf-id> fortgesetzt werden.
+The team (supervisor with specialist agents) works on a copy of the repository
+in the workspaces/ folder. At the end it shows the changes as a diff and asks for
+approval: only then are they applied to the repository.
+With --in-place the repository is changed directly (without approval).
+Every run is saved and can be continued with --resume <run-id>.
 """
 
 import argparse
@@ -29,16 +29,16 @@ from coding_agent.team import ReviewAnswer, build_team_graph
 from coding_agent.tools import ensure_sandbox_image
 
 PREVIEW_CHARS = 400
-YES = {"", "j", "ja", "y", "yes"}
-NO = {"n", "nein", "no"}
+YES = {"", "y", "yes"}
+NO = {"n", "no"}
 
 
 def show_diff(original: Path, workspace: Path) -> None:
-    print(diff_text(original, workspace) or "(keine Änderungen)")
+    print(diff_text(original, workspace) or "(no changes)")
 
 
 def parse_review_answer(text: str) -> ReviewAnswer:
-    # ﻿: Byte-Order-Mark, das Windows PowerShell beim Weiterleiten (Pipe) voranstellt
+    # ﻿: byte order mark that Windows PowerShell prepends when piping input
     text = text.replace("﻿", "").strip()
     if text.lower() in YES:
         return {"action": "approve"}
@@ -61,8 +61,8 @@ def print_update(update: dict) -> None:
 
 
 def run(app, inputs, config: dict, state: dict) -> None:
-    """Führt den Graphen aus, bis er fertig ist oder an einem interrupt pausiert."""
-    # subgraphs=True: auch die Schritte innerhalb der Fach-Agenten live anzeigen
+    """Runs the graph until it finishes or pauses at an interrupt."""
+    # subgraphs=True: also show the steps inside the specialist agents live
     for namespace, chunk in app.stream(inputs, config, stream_mode="updates", subgraphs=True):
         for node, update in chunk.items():
             if not isinstance(update, dict):
@@ -80,40 +80,40 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Autonomer Coding-Agent mit LangGraph")
-    parser.add_argument("task", nargs="?", default=DEFAULT_TASK, help="Aufgabe für den Agenten")
-    parser.add_argument("--repo", type=Path, help="Ordner des Repositorys")
-    parser.add_argument("--resume", metavar="LAUF_ID", help="Einen gespeicherten Lauf fortsetzen")
-    parser.add_argument("--in-place", action="store_true", help="Repository direkt ändern statt einer Kopie")
-    parser.add_argument("--auto-approve", action="store_true", help="Ohne Freigabe durch einen Menschen beenden")
-    parser.add_argument("--no-sandbox", action="store_true", help="Tests lokal statt im Docker-Container ausführen")
+    parser = argparse.ArgumentParser(description="Autonomous coding agent built with LangGraph")
+    parser.add_argument("task", nargs="?", default=DEFAULT_TASK, help="Task for the agent")
+    parser.add_argument("--repo", type=Path, help="Folder of the repository")
+    parser.add_argument("--resume", metavar="RUN_ID", help="Continue a saved run")
+    parser.add_argument("--in-place", action="store_true", help="Change the repository directly instead of a copy")
+    parser.add_argument("--auto-approve", action="store_true", help="Finish without human approval")
+    parser.add_argument("--no-sandbox", action="store_true", help="Run tests locally instead of in the Docker container")
     args = parser.parse_args()
     if bool(args.repo) == bool(args.resume):
-        parser.error("Gib entweder --repo (neuer Lauf) oder --resume (Lauf fortsetzen) an.")
+        parser.error("Specify either --repo (new run) or --resume (continue a run).")
 
     try:
         run_info = load_run(args.resume) if args.resume else new_run(
             args.repo, args.task, args.in_place, args.auto_approve, not args.no_sandbox)
     except FileNotFoundError as e:
-        sys.exit(f"Fehler: {e}")
+        sys.exit(f"Error: {e}")
     if run_info.sandbox:
         try:
             ensure_sandbox_image()
         except RuntimeError as e:
-            sys.exit(f"Fehler: {e}")
+            sys.exit(f"Error: {e}")
     save_run(run_info)
 
     repo, workspace = Path(run_info.repo), Path(run_info.workspace)
     resume_hint = f"python -m coding_agent --resume {run_info.id}"
-    print(f"Lauf-ID:   {run_info.id}\nAufgabe:   {run_info.task}\nWorkspace: {workspace}\n"
-          f"Sandbox:   {'Docker' if run_info.sandbox else 'aus (lokal)'}\n"
-          f"Freigabe:  {'ja' if run_info.human_review else 'nein'}")
+    print(f"Run ID:    {run_info.id}\nTask:      {run_info.task}\nWorkspace: {workspace}\n"
+          f"Sandbox:   {'Docker' if run_info.sandbox else 'off (local)'}\n"
+          f"Approval:  {'yes' if run_info.human_review else 'no'}")
 
     app = build_team_graph(workspace, run_info.sandbox, run_info.human_review, open_checkpointer())
     inputs = {"task": run_info.task}
 
     config = run_config(run_info.id, "coding-agent", ["cli"],
-                        {"lauf_id": run_info.id, "task": run_info.task, "repo": repo.name})
+                        {"run_id": run_info.id, "task": run_info.task, "repo": repo.name})
     snapshot = app.get_state(config)
     state = dict(snapshot.values)
 
@@ -121,32 +121,32 @@ def main() -> None:
         if not args.resume:
             run(app, inputs, config, state)
         elif not snapshot.next:
-            print("\nDieser Lauf ist bereits abgeschlossen.")
+            print("\nThis run is already finished.")
             return
         elif not snapshot.interrupts:
-            print("\nSetze den Lauf am letzten gespeicherten Schritt fort ...")
-            run(app, None, config, state)  # None: ab dem letzten Checkpoint weiterlaufen
+            print("\nContinuing the run from the last saved step ...")
+            run(app, None, config, state)  # None: continue from the last checkpoint
 
         while run_info.human_review and app.get_state(config).interrupts:
-            passed = {True: "ja", False: "nein"}.get(state.get("tests_passed"), "unbekannt")
-            print(f"\n=== Ergebnis ===\n{state.get('summary', '')}\nTests bestanden: {passed}")
-            print("\n=== Änderungen ===")
+            passed = {True: "yes", False: "no"}.get(state.get("tests_passed"), "unknown")
+            print(f"\n=== Result ===\n{state.get('summary', '')}\nTests passed: {passed}")
+            print("\n=== Changes ===")
             show_diff(repo, workspace)
-            answer = parse_review_answer(input("\nÜbernehmen? [J]a / [n]ein / oder Feedback eingeben: "))
+            answer = parse_review_answer(input("\nApply? [Y]es / [n]o / or type feedback: "))
             run(app, Command(resume=answer), config, state)
     except (KeyboardInterrupt, EOFError):
-        sys.exit(f"\n\nPausiert. Der Zwischenstand ist gespeichert. Fortsetzen mit:\n  {resume_hint}")
+        sys.exit(f"\n\nPaused. Progress has been saved. Continue with:\n  {resume_hint}")
 
     if run_info.in_place:
         return
     if run_info.human_review:
         if state.get("review") == "approve":
             files = apply_changes(repo, workspace)
-            print(f"\nÜbernommen in {repo}: " + (", ".join(f.as_posix() for f in files) or "(keine Änderungen)"))
+            print(f"\nApplied to {repo}: " + (", ".join(f.as_posix() for f in files) or "(no changes)"))
         else:
-            print(f"\nVerworfen. {repo} bleibt unverändert, die Arbeitskopie liegt in {workspace}.")
+            print(f"\nDiscarded. {repo} is unchanged, the working copy is in {workspace}.")
     else:
-        print("\n=== Änderungen ===")
+        print("\n=== Changes ===")
         show_diff(repo, workspace)
 
 

@@ -15,7 +15,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt ruff
       - run: ruff check .
-      # Die Tests rufen kein Modell auf; der Platzhalter-Schlüssel wird nur für den Aufbau der Clients gebraucht
+      # The tests do not call any model; the placeholder key is only needed to construct the clients
       - run: pytest -q
         env:
           OPENAI_API_KEY: sk-placeholder-not-used

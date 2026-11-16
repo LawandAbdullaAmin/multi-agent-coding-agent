@@ -1,32 +1,32 @@
-// Galaxie-Szene (WebGL, Three.js) für das Agenten-Team.
+// Galaxy scene (WebGL, Three.js) for the agent team.
 //
-// Der Supervisor ist ein strahlender Kern im Zentrum einer Spiralgalaxie, die fünf Fach-Agenten kreisen als
-// Energiekugeln um ihn. Erteilt der Supervisor einen Auftrag, schießt ein Energiestrahl zum Agenten und hält
-// die Verbindung, solange dieser arbeitet. Der Bericht fliegt als Lichtblitz zurück.
+// The supervisor is a radiant core at the center of a spiral galaxy; the five specialist agents orbit it as
+// energy orbs. When the supervisor gives an instruction, an energy beam shoots to the agent and holds
+// the connection while it works. The report flies back as a flash of light.
 //
-// Bewusst leichtgewichtig: keine Nachbearbeitung (Bloom) und kein Raymarching. Das Leuchten entsteht
-// durch additive Shader, so läuft die Szene auch auf schwacher Grafik flüssig.
+// Deliberately lightweight: no post-processing (bloom) and no raymarching. The glow comes from
+// additive shaders, so the scene runs smoothly even on weak graphics hardware.
 //
-// Ein einziger Canvas liegt hinter der ganzen Seite. Das System wird mit einer verschobenen Kamera
-// genau unter ein HTML-Element gelegt (Startseite: Vorschau, Laufansicht: Bühne).
+// A single canvas sits behind the whole page. An offset camera places the system exactly
+// under an HTML element (start page: preview, run view: stage).
 
 import * as THREE from "three";
 
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export const AGENTS = {
-  explorer: { name: "Explorer", role: "Analysiert den Code", color: "#5fd4f0", icon: "search", kind: 0 },
-  test_writer: { name: "Test-Autor", role: "Schreibt Tests aus der Anforderung", color: "#ffb45e", icon: "flask", kind: 1 },
-  developer: { name: "Entwickler", role: "Setzt die Lösung um", color: "#ff6f9a", icon: "code", kind: 2 },
-  tester: { name: "Tester", role: "Führt alle Tests aus", color: "#62e09a", icon: "play", kind: 3 },
-  reviewer: { name: "Reviewer", role: "Prüft gegen die Anforderung", color: "#9b8cff", icon: "shield", kind: 4 },
+  explorer: { name: "Explorer", role: "Analyzes the code", color: "#5fd4f0", icon: "search", kind: 0 },
+  test_writer: { name: "Test Writer", role: "Writes tests from the requirements", color: "#ffb45e", icon: "flask", kind: 1 },
+  developer: { name: "Developer", role: "Implements the solution", color: "#ff6f9a", icon: "code", kind: 2 },
+  tester: { name: "Tester", role: "Runs all tests", color: "#62e09a", icon: "play", kind: 3 },
+  reviewer: { name: "Reviewer", role: "Checks against the requirements", color: "#9b8cff", icon: "shield", kind: 4 },
 };
-export const SUPERVISOR = { name: "Supervisor", role: "Steuert das Team", color: "#ffb36b", icon: "compass" };
+export const SUPERVISOR = { name: "Supervisor", role: "Steers the team", color: "#ffb36b", icon: "compass" };
 
 const TAU = Math.PI * 2;
-const ORBIT = 10;            // Bahnradius der Agenten
-const ORB_SIZE = 0.85;       // Radius einer Agenten-Kugel
-const ELEVATION = 0.42;      // Blickwinkel über der Galaxieebene (rad)
+const ORBIT = 10;            // orbit radius of the agents
+const ORB_SIZE = 0.85;       // radius of an agent orb
+const ELEVATION = 0.42;      // viewing angle above the galaxy plane (rad)
 const FOV = 32;
 const GOLD = new THREE.Color("#ffc27a");
 const ALARM = new THREE.Color("#ff4d4d");
@@ -35,7 +35,7 @@ const ALARM = new THREE.Color("#ff4d4d");
 
 const NOISE_1D = /* glsl */ `
   float hash(float n) { return fract(sin(n) * 43758.5453); }
-  // Wertrauschen mit Periode, damit es um einen Kreis herum nahtlos ist
+  // periodic value noise so it is seamless around a circle
   float noiseP(float x, float period) {
     float i = floor(x), f = fract(x);
     f = f * f * (3.0 - 2.0 * f);
@@ -46,14 +46,14 @@ const QUAD_VERTEX = /* glsl */ `
   varying vec2 vUv;
   void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
-// Kern des Supervisors: weißglühende Mitte, Korona und flackernde Strahlen
+// The supervisor's core: white-hot center, corona and flickering rays
 const CORE_FRAGMENT = /* glsl */ `
   uniform float uTime, uEnergy, uAlarm;
   uniform vec3 uWarm, uAlarmColor;
   varying vec2 vUv;
   ${NOISE_1D}
   void main() {
-    vec2 p = (vUv - 0.5) * 16.0;            // Fläche ist 16 Einheiten groß
+    vec2 p = (vUv - 0.5) * 16.0;            // the quad is 16 units across
     float r = length(p);
     float angle = atan(p.y, p.x) / 6.28318 + 0.5;
     vec3 warm = mix(uWarm, uAlarmColor, uAlarm);
@@ -71,7 +71,7 @@ const CORE_FRAGMENT = /* glsl */ `
     gl_FragColor = vec4(color * fade, 1.0);
   }`;
 
-// Plasmawirbel um den Kern, in der Galaxieebene
+// Plasma swirl around the core, in the galaxy plane
 const SWIRL_FRAGMENT = /* glsl */ `
   uniform float uTime, uEnergy, uAlarm;
   uniform vec3 uWarm, uAlarmColor;
@@ -88,7 +88,7 @@ const SWIRL_FRAGMENT = /* glsl */ `
     gl_FragColor = vec4(warm * band * streaks * (0.45 + uEnergy * 0.7) * smoothstep(1.0, 1.6, r), 1.0);
   }`;
 
-// Ring in der Ebene: Schockwelle (wachsend) oder gestrichelter Markierungsring unter einem Agenten
+// Ring in the plane: shockwave (growing) or dashed marker ring under an agent
 const RING_FRAGMENT = /* glsl */ `
   uniform float uTime, uRadius, uWidth, uAlpha, uDash;
   uniform vec3 uColor;
@@ -102,7 +102,7 @@ const RING_FRAGMENT = /* glsl */ `
     gl_FragColor = vec4(uColor * band * dash * uAlpha, 1.0);
   }`;
 
-// Energiestrahl: Band entlang einer Bézierkurve, das sich immer zur Kamera dreht
+// Energy beam: a ribbon along a Bézier curve that always faces the camera
 const BEAM_VERTEX = /* glsl */ `
   uniform vec3 uA, uB, uC;
   uniform float uWidth;
@@ -131,23 +131,23 @@ const BEAM_FRAGMENT = /* glsl */ `
     float head = smoothstep(uReach + 0.02, uReach - 0.03, u);
     float flicker = 0.7 + 0.3 * noiseP(u * 30.0 - uTime * 24.0 + uSeed, 997.0);
 
-    float core = exp(-d * d * 140.0) * flicker;                   // weißglühender Kern
-    float glow = exp(-d * 4.0) * 0.5;                             // weiter Schein
-    float phase = u * 42.0 - uTime * 11.0 + uSeed;                // zwei umeinander gewundene Fäden
+    float core = exp(-d * d * 140.0) * flicker;                   // white-hot core
+    float glow = exp(-d * 4.0) * 0.5;                             // wide glow
+    float phase = u * 42.0 - uTime * 11.0 + uSeed;                // two intertwined strands
     float strands = exp(-pow((vSide - 0.34 * sin(phase)) * 10.0, 2.0))
                   + exp(-pow((vSide - 0.34 * sin(phase + 3.14159)) * 10.0, 2.0));
-    float pulse = pow(0.5 + 0.5 * sin(u * 24.0 - uTime * 16.0), 10.0);  // Energiepakete zum Ziel
+    float pulse = pow(0.5 + 0.5 * sin(u * 24.0 - uTime * 16.0), 10.0);  // energy packets toward the target
 
     vec3 color = mix(uColorA, uColorB, smoothstep(0.05, 0.9, u));
     vec3 c = vec3(1.0, 0.98, 0.95) * core * (1.3 + pulse * 1.5)
            + color * (glow * (0.8 + pulse) + strands * (0.5 + 0.4 * pulse));
-    // Gleißende Spitze, solange der Strahl noch wächst
+    // Blazing tip while the beam is still growing
     float tip = exp(-pow((u - uReach) * 30.0, 2.0)) * (1.0 - step(0.999, uReach));
     c += (vec3(1.0) * exp(-d * d * 25.0) + color * exp(-d * 2.5)) * tip * 2.0;
     gl_FragColor = vec4(c * head * smoothstep(0.0, 0.06, u) * uPower, 1.0);
   }`;
 
-// Agent als Energiekugel: farbiger Rand, bewegte Bänder, beleuchtet vom Supervisor
+// Agent as an energy orb: colored rim, moving bands, lit by the supervisor
 const ORB_VERTEX = /* glsl */ `
   varying vec3 vWorldNormal, vWorld, vLocal;
   void main() {
@@ -159,7 +159,7 @@ const ORB_VERTEX = /* glsl */ `
     gl_Position = projectionMatrix * view;
   }`;
 
-// 3D-Simplex-Rauschen (Ashima Arts, MIT) für die Planetenoberflächen
+// 3D simplex noise (Ashima Arts, MIT) for the planet surfaces
 const SIMPLEX = /* glsl */ `
   vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -207,7 +207,7 @@ const SIMPLEX = /* glsl */ `
     return sum;
   }`;
 
-// Jeder Agent ist eine eigene Welt, beleuchtet vom Kern: Tag- und Nachtseite, Atmosphärensaum
+// Every agent is its own world, lit by the core: day and night side, atmospheric rim
 const ORB_FRAGMENT = /* glsl */ `
   uniform vec3 uColor;
   uniform float uTime, uGlow, uFlash, uKind;
@@ -220,7 +220,7 @@ const ORB_FRAGMENT = /* glsl */ `
     vec3 albedo, emissive = vec3(0.0);
     float clouds = 0.0, wet = 0.0, nightOnly = 0.0;
 
-    if (uKind < 0.5) {            // Explorer: Ozean- und Eiswelt
+    if (uKind < 0.5) {            // Explorer: ocean and ice world
       float h = fbm(p * 2.2);
       vec3 ocean = mix(vec3(0.01, 0.07, 0.2), vec3(0.04, 0.33, 0.55), smoothstep(-0.4, 0.05, h));
       vec3 land = mix(vec3(0.62, 0.74, 0.8), vec3(0.95, 0.98, 1.0), smoothstep(0.1, 0.5, h));
@@ -228,18 +228,18 @@ const ORB_FRAGMENT = /* glsl */ `
       albedo = mix(albedo, vec3(0.95, 0.98, 1.0), smoothstep(0.62, 0.8, abs(n.y) + h * 0.15));
       wet = 1.0 - smoothstep(0.03, 0.08, h);
       clouds = smoothstep(0.1, 0.6, fbm(p * 3.0 + vec3(uTime * 0.05, 0.0, 0.0)));
-    } else if (uKind < 1.5) {     // Test-Autor: Gasriese mit Sturmauge
+    } else if (uKind < 1.5) {     // Test writer: gas giant with a storm eye
       float w = fbm(p * vec3(2.0, 6.0, 2.0) + vec3(uTime * 0.03, 0.0, 0.0));
       albedo = mix(vec3(0.5, 0.22, 0.07), vec3(1.0, 0.84, 0.58), 0.5 + 0.5 * sin(n.y * 16.0 + w * 3.0));
       albedo = mix(albedo, vec3(0.92, 0.52, 0.2), smoothstep(0.3, 0.6, w));
       float storm = smoothstep(0.3, 0.0, length(vec2(atan(p.z, p.x) - 1.0, (n.y + 0.3) * 2.5)) + w * 0.1);
       albedo = mix(albedo, vec3(0.75, 0.25, 0.1), storm * 0.85);
-    } else if (uKind < 2.5) {     // Entwickler: Lavaplanet mit glühenden Rissen
+    } else if (uKind < 2.5) {     // Developer: lava planet with glowing cracks
       float h = fbm(p * 2.5);
       float cracks = pow(1.0 - abs(snoise(p * 1.8 + h * 0.6)), 7.0) * smoothstep(0.35, -0.1, h);
       albedo = mix(vec3(0.05, 0.03, 0.04), vec3(0.2, 0.11, 0.1), smoothstep(-0.3, 0.4, h));
       emissive = mix(vec3(1.0, 0.2, 0.35), vec3(1.0, 0.75, 0.4), cracks) * cracks * (1.5 + 0.5 * sin(uTime * 2.0 + h * 6.0));
-    } else if (uKind < 3.5) {     // Tester: Dschungelwelt mit Stadtlichtern auf der Nachtseite
+    } else if (uKind < 3.5) {     // Tester: jungle world with city lights on the night side
       float h = fbm(p * 2.0);
       vec3 ocean = mix(vec3(0.0, 0.07, 0.11), vec3(0.0, 0.3, 0.32), smoothstep(-0.4, 0.0, h));
       vec3 land = mix(vec3(0.07, 0.3, 0.11), vec3(0.45, 0.55, 0.25), smoothstep(0.1, 0.6, h));
@@ -248,7 +248,7 @@ const ORB_FRAGMENT = /* glsl */ `
       clouds = smoothstep(0.15, 0.65, fbm(p * 2.6 - vec3(uTime * 0.04, 0.0, 0.0)));
       emissive = vec3(1.0, 0.78, 0.4) * smoothstep(0.45, 0.8, snoise(p * 22.0)) * smoothstep(0.05, 0.2, h);
       nightOnly = 1.0;
-    } else {                      // Reviewer: violetter Eisriese (mit Ringen)
+    } else {                      // Reviewer: violet ice giant (with rings)
       float w = fbm(p * vec3(1.5, 5.0, 1.5) - vec3(uTime * 0.02, 0.0, 0.0));
       albedo = mix(vec3(0.2, 0.16, 0.52), vec3(0.78, 0.74, 1.0), 0.5 + 0.5 * sin(n.y * 10.0 + w * 2.5));
     }
@@ -260,16 +260,16 @@ const ORB_FRAGMENT = /* glsl */ `
     vec3 sun = vec3(1.0, 0.86, 0.68);
     albedo = mix(albedo, vec3(1.0), clouds * 0.85);
     vec3 c = albedo * sun * diffuse * 1.3 + albedo * (0.07 + uColor * 0.1);
-    c += sun * pow(max(dot(N, normalize(L + V)), 0.0), 70.0) * wet * diffuse * 0.8;   // Glanz auf dem Wasser
+    c += sun * pow(max(dot(N, normalize(L + V)), 0.0), 70.0) * wet * diffuse * 0.8;   // shine on the water
     c += emissive * mix(1.0, night, nightOnly) * (1.0 - clouds * 0.7);
     float rim = 1.0 - max(dot(N, V), 0.0);
-    c += uColor * pow(rim, 2.5) * (0.55 + 1.4 * smoothstep(-0.3, 0.6, light) + uGlow * 1.6);   // Atmosphäre
+    c += uColor * pow(rim, 2.5) * (0.55 + 1.4 * smoothstep(-0.3, 0.6, light) + uGlow * 1.6);   // atmosphere
     c += uColor * uGlow * 0.1 * (1.0 + 0.3 * sin(uTime * 4.0));
     c += vec3(1.0) * uFlash * 0.35;
     gl_FragColor = vec4(c, 1.0);
   }`;
 
-// Ringsystem des Reviewers mit Lücken wie bei Saturn
+// The reviewer's ring system with gaps like Saturn's
 const PLANET_RING_FRAGMENT = /* glsl */ `
   uniform vec3 uColor;
   varying vec2 vUv;
@@ -285,7 +285,7 @@ const PLANET_RING_FRAGMENT = /* glsl */ `
     gl_FragColor = vec4(color * alpha, alpha);
   }`;
 
-// Galaxie: Sterne auf Spiralarmen, die sich differenziell drehen (innen schneller als außen)
+// Galaxy: stars on spiral arms that rotate differentially (faster inside than outside)
 const GALAXY_VERTEX = /* glsl */ `
   uniform float uTime, uPixelRatio;
   attribute float aRadius, aAngle, aHeight, aSize;
@@ -352,7 +352,7 @@ export class Universe {
     this.alarm = 0;
     this.rotation = 0;
     this.queueEnd = 0;
-    this.generation = 0;   // erhöht sich bei reset(), damit alte geplante Ereignisse verfallen
+    this.generation = 0;   // incremented on reset() so that old scheduled events expire
     this.beams = [];
     this.waves = [];
     this.flashes = [];
@@ -364,7 +364,7 @@ export class Universe {
     try {
       this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     } catch (error) {
-      console.error("WebGL nicht verfügbar", error);
+      console.error("WebGL not available", error);
       canvas.classList.add("no-webgl");
       return;
     }
@@ -381,22 +381,22 @@ export class Universe {
     this.buildSupervisor();
     this.buildAgents();
     this.buildLabels();
-    if (new URLSearchParams(location.search).has("debug")) {  // ?debug zeigt Grafikkarte und Bildrate
+    if (new URLSearchParams(location.search).has("debug")) {  // ?debug shows the graphics card and frame rate
       this.debug = document.createElement("pre");
       this.debug.className = "space-debug";
       document.body.appendChild(this.debug);
       const gl = this.renderer.getContext(), info = gl.getExtension("WEBGL_debug_renderer_info");
-      this.gpu = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : "unbekannt";
+      this.gpu = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : "unknown";
     }
     window.addEventListener("resize", () => this.resize());
     this.resize();
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
-  // ---- Aufbau --------------------------------------------------------------------------
+  // ---- Setup ---------------------------------------------------------------------------
 
   buildSky() {
-    // Ferne Sterne auf einer großen Kugel
+    // Distant stars on a large sphere
     const count = 3500, positions = [], sizes = [], colors = [], phases = [];
     const direction = new THREE.Vector3(), color = new THREE.Color();
     const tints = ["#9fb4ff", "#c8d4ff", "#ffffff", "#fff1e0", "#ffd9b0"];
@@ -419,7 +419,7 @@ export class Universe {
     })));
     this.scene.add(this.sky);
 
-    // Zarte Nebelschleier im Hintergrund
+    // Faint nebula veils in the background
     for (const [x, y, z, size, tint, opacity] of [
       [-260, 90, -600, 700, "#3b2a7a", 0.22], [320, -60, -650, 800, "#123c66", 0.2], [40, 220, -700, 600, "#5a2448", 0.12],
     ]) {
@@ -440,7 +440,7 @@ export class Universe {
       const radius = 1.6 + t * extent;
       const arm = (i % arms) / arms * TAU;
       const spread = (0.25 + t * 0.55) * gauss();
-      const dust = i % 7 === 0;   // ein Teil der Sterne liegt zwischen den Armen
+      const dust = i % 7 === 0;   // some of the stars lie between the arms
       radii.push(radius);
       angles.push(arm + radius * 0.32 + (dust ? Math.random() * TAU : spread));
       heights.push(gauss() * (0.5 - t * 0.35));
@@ -461,10 +461,10 @@ export class Universe {
     this.galaxy = new THREE.Points(geometry, new THREE.ShaderMaterial(additive({
       vertexShader: GALAXY_VERTEX, fragmentShader: POINT_FRAGMENT, uniforms: this.uniforms,
     })));
-    this.galaxy.frustumCulled = false;   // Positionen entstehen erst im Shader
+    this.galaxy.frustumCulled = false;   // positions are only computed in the shader
     this.scene.add(this.galaxy);
 
-    // Dünne Umlaufbahn der Agenten
+    // Thin orbit of the agents
     const points = [];
     for (let i = 0; i <= 256; i++) points.push(new THREE.Vector3(Math.cos(i / 256 * TAU) * ORBIT, 0, Math.sin(i / 256 * TAU) * ORBIT));
     this.orbit = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),
@@ -545,7 +545,7 @@ export class Universe {
     }
   }
 
-  // ---- Ausrichtung auf ein HTML-Element ------------------------------------------------------
+  // ---- Aligning to an HTML element ---------------------------------------------------------
 
   anchor(element) {
     this.anchorElement = element;
@@ -567,7 +567,7 @@ export class Universe {
     this.idleTimer = setTimeout(step, 900);
   }
 
-  // Erst bei unter 30 Bildern pro Sekunde etwas weniger Pixel rechnen, aber nie so wenig, dass es unscharf wird
+  // Only below 30 frames per second render slightly fewer pixels, but never so few that it gets blurry
   adaptQuality(dt) {
     this.frameTimes = (this.frameTimes || []).concat(dt).slice(-40);
     this.fps = this.frameTimes.length / this.frameTimes.reduce((a, b) => a + b, 0.0001);
@@ -597,7 +597,7 @@ export class Universe {
     if (!visible) return false;
     const W = window.innerWidth, H = window.innerHeight;
     const cx = rect.left + rect.width / 2, cy = rect.top + rect.height * 0.5;
-    // Bahn so groß wie möglich, aber mit Platz für Kugeln und Beschriftungen
+    // Orbit as large as possible, but with room for orbs and labels
     const orbitPx = Math.min(rect.width * 0.42, (rect.height * 0.34) / Math.sin(ELEVATION));
     const distance = (ORBIT * H) / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * orbitPx);
     const sway = REDUCED_MOTION ? 0 : Math.sin(this.time * 0.06) * 0.08;
@@ -608,9 +608,9 @@ export class Universe {
     return true;
   }
 
-  // ---- Ablaufsteuerung --------------------------------------------------------------------
+  // ---- Sequencing ------------------------------------------------------------------------
 
-  // Ereignisse nacheinander abspielen, auch wenn der Server sie schneller schickt
+  // Play events one after another, even if the server sends them faster
   schedule(duration, action) {
     const now = performance.now(), generation = this.generation;
     const start = Math.max(now, this.queueEnd);
@@ -630,7 +630,7 @@ export class Universe {
     return target.set(Math.cos(angle) * ORBIT, Math.sin(angle * 2 + planet.phase) * 0.25, Math.sin(angle) * ORBIT);
   }
 
-  // Strahl von from() nach to(). sustain: bleibt stehen, bis release() aufgerufen wird.
+  // Beam from from() to to(). sustain: stays until release() is called.
   beam(from, to, colorA, colorB, { grow = 550, hold = 0, width = 0.95, power = 1, sustain = false } = {}) {
     const segments = 120, u = [], side = [], index = [];
     for (let i = 0; i <= segments; i++) {
@@ -674,7 +674,7 @@ export class Universe {
     this.flashes.push({ sprite, scale, duration, start: performance.now() });
   }
 
-  // ---- Ereignisse aus dem Lauf ---------------------------------------------------------------
+  // ---- Events from the run -----------------------------------------------------------------
 
   dispatch(key) {
     const planet = this.planet(key);
@@ -759,7 +759,7 @@ export class Universe {
     object.material?.dispose();
   }
 
-  // ---- Jedes Bild ---------------------------------------------------------------------------
+  // ---- Every frame --------------------------------------------------------------------------
 
   frame() {
     if (document.hidden || this.lost) return;
@@ -796,7 +796,7 @@ export class Universe {
     if (visible) this.updateLabels();
     this.adaptQuality(dt);
     if (this.debug) {
-      this.debug.textContent = `${this.gpu}\n${Math.round(this.fps || 0)} FPS · Qualität ${Math.round(this.quality * 100)} % · ` +
+      this.debug.textContent = `${this.gpu}\n${Math.round(this.fps || 0)} FPS · quality ${Math.round(this.quality * 100)} % · ` +
         `${this.renderer.domElement.width}×${this.renderer.domElement.height} px`;
     }
   }
@@ -807,7 +807,7 @@ export class Universe {
       const elapsed = now - beam.start;
       const reach = Math.min(1, elapsed / beam.grow);
       if (!beam.sustain && !beam.released && elapsed > beam.grow + beam.hold) beam.release();
-      // Beim Auftreffen kurz gleißend, danach eine ruhigere, gehaltene Verbindung
+      // Briefly blazing on impact, then a calmer, sustained connection
       let power = beam.power * (reach < 1 ? 1 : (beam.sustain ? 0.55 + 0.45 * Math.exp(-(elapsed - beam.grow) / 400) : 1));
       if (beam.released) {
         const fade = (now - beam.released) / 450;
@@ -875,12 +875,12 @@ export class Universe {
       const center = planet.group.position;
       const c = toScreen(center);
       const radius = Math.abs(toScreen(center.clone().addScaledVector(right, ORB_SIZE)).x - c.x);
-      const depth = (Math.sin(planet.phase + this.rotation) + 1) / 2;  // 1 = vorne
+      const depth = (Math.sin(planet.phase + this.rotation) + 1) / 2;  // 1 = front
       planet.label.style.transform = `translate(${c.x}px, ${c.y + radius + 12}px) translate(-50%, 0)`;
       planet.label.style.opacity = (0.55 + 0.45 * depth).toFixed(2);
       planet.label.classList.toggle("active", planet.active);
       planet.label.classList.toggle("done", planet.done && !planet.active);
-      const status = planet.active ? "arbeitet" : planet.done ? "✓ erledigt" : "";
+      const status = planet.active ? "working" : planet.done ? "✓ done" : "";
       const detail = [status, planet.model].filter(Boolean).join(" · ");
       const span = planet.label.querySelector("span");
       if (span.textContent !== detail) span.textContent = detail;

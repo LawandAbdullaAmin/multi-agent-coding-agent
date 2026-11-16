@@ -1,34 +1,34 @@
-# Multi-Agent Coding-Agent
+# Multi-Agent Coding Agent
 
 [![Tests](https://github.com/LawandAbdullaAmin/multi-agent-coding-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/LawandAbdullaAmin/multi-agent-coding-agent/actions/workflows/ci.yml)
 [![Website](https://github.com/LawandAbdullaAmin/multi-agent-coding-agent/actions/workflows/pages.yml/badge.svg)](https://LawandAbdullaAmin.github.io/multi-agent-coding-agent/)
 
-Ein autonomes KI-Team mit LangGraph, das Fehler in Python-Projekten behebt und Features umsetzt.
-Ein Supervisor verteilt die Arbeit an fünf spezialisierte Agenten: Sie analysieren den Code, schreiben
-Tests aus der Anforderung, programmieren, führen die Tests in einer Docker-Sandbox aus und prüfen sich
-gegenseitig. Der Mensch gibt das Ergebnis am Ende frei.
+An autonomous AI team built with LangGraph that fixes bugs in Python projects and implements features.
+A supervisor hands out the work to five specialized agents. They analyze the code, write tests from the
+requirements, write the code, run the tests in a Docker sandbox and check each other's work. At the end,
+a human approves the result.
 
-**Live-Demo:** [LawandAbdullaAmin.github.io/multi-agent-coding-agent](https://LawandAbdullaAmin.github.io/multi-agent-coding-agent/)
-(statische Vorschau mit simuliertem Lauf, ohne Server und ohne Kosten)
+**Live demo:** [LawandAbdullaAmin.github.io/multi-agent-coding-agent](https://LawandAbdullaAmin.github.io/multi-agent-coding-agent/)
+(static preview with a simulated run, no server and no cost)
 
-![Weboberfläche: Der Supervisor schickt einen Auftrag an den Explorer](docs/screenshot.png)
+![Web interface: the supervisor sends an instruction to the explorer](docs/screenshot.png)
 
 ## Highlights
 
-- **Supervisor-Architektur in LangGraph:** ein Supervisor und fünf Fach-Agenten mit eigenen Rollen, Werkzeugen und Modellen
-- **Guardrails im Code statt im Prompt:** Schreibrechte pro Rolle, Abschluss nur mit grünen Tests und Freigabe des Reviewers
-- **Sichere Ausführung:** generierter Code läuft in einer Docker-Sandbox ohne Netzwerk und ohne Schreibrechte
-- **Human-in-the-loop:** Diff prüfen, übernehmen, verwerfen oder Feedback an das Team geben
-- **Persistenz und Tracing:** Läufe mit SQLite-Checkpoints fortsetzen, jeder Schritt in LangSmith nachvollziehbar
-- **Evaluation:** eigener Benchmark mit versteckten Tests
-- **Weboberfläche:** FastAPI mit Live-Streaming und einer 3D-Ansicht des Teams in Three.js
+- **Supervisor architecture in LangGraph:** one supervisor and five specialist agents with their own roles, tools and models
+- **Guardrails in code instead of the prompt:** write permissions per role, finishing only with green tests and reviewer approval
+- **Safe execution:** generated code runs in a Docker sandbox without network access and without write permissions
+- **Human-in-the-loop:** review the diff, apply it, discard it or send feedback to the team
+- **Persistence and tracing:** resume runs from SQLite checkpoints, every step traceable in LangSmith
+- **Evaluation:** custom benchmark with hidden tests
+- **Web interface:** FastAPI with live streaming and a 3D view of the team in Three.js
 
-**Tech-Stack:** Python, LangGraph, LangChain (`create_agent`), OpenAI (`gpt-4.1`, `gpt-4.1-mini`), Docker,
-SQLite, LangSmith, FastAPI, Server-Sent Events, Three.js/WebGL, pytest, GitHub Actions
+**Tech stack:** Python, LangGraph, LangChain (`create_agent`), OpenAI (`gpt-4.1`, `gpt-4.1-mini`), Docker,
+SQLite, LangSmith, FastAPI, server-sent events, Three.js/WebGL, pytest, GitHub Actions
 
-## Architektur
+## Architecture
 
-### Supervisor mit Fach-Agenten
+### Supervisor with specialist agents
 
 ```
                        +--> explorer     --+
@@ -38,151 +38,153 @@ START -> supervisor ---+--> developer    --+--> supervisor --> ... --> review --
                        +--> reviewer     --+
 ```
 
-Der **Supervisor** ist ein eigener LangGraph-Knoten. Er liest die Berichte der Fach-Agenten und
-entscheidet per strukturierter Ausgabe, wer als Nächstes arbeitet und mit welchem Auftrag.
-Typischer Ablauf: explorer → test_writer → developer → tester → reviewer.
-Die **Fach-Agenten** sind mit `create_agent` gebaut und bekommen nur die Werkzeuge ihrer Rolle:
+The **supervisor** is its own LangGraph node. It reads the specialists' reports and uses structured
+output to decide who works next and with which instruction.
+Typical flow: explorer → test_writer → developer → tester → reviewer.
+The **specialists** are built with `create_agent` and only get the tools of their role:
 
-| Agent | Modell | Werkzeuge | Darf schreiben | Rolle |
+| Agent | Model | Tools | May write | Role |
 |---|---|---|---|---|
-| explorer | günstig | `list_files`, `read_file`, `search_code` | nichts | Fehlerursachen und nicht erfüllte Docstrings finden |
-| test_writer | stark | Lesen, `write_file`, `edit_file`, `run_tests` | nur **neue** Testdateien | Tests aus Aufgabe und Docstrings ableiten, jeder Test mit Zitat als Beleg |
-| developer | günstig → stark | `read_file`, `search_code`, `edit_file`, `write_file` | nur Produktivcode | Code ändern |
-| tester | günstig | `run_tests`, `read_file` | nichts | alle Tests ausführen |
-| reviewer | stark | Lesen, `show_changes`, `run_tests` | nichts | Änderungen gegen die Anforderung prüfen, strukturiertes Urteil (freigegeben + Lücken) |
+| explorer | cheap | `list_files`, `read_file`, `search_code` | nothing | find bug causes and unmet docstrings |
+| test_writer | strong | read tools, `write_file`, `edit_file`, `run_tests` | only **new** test files | derive tests from the task and docstrings, each test backed by a quote |
+| developer | cheap → strong | `read_file`, `search_code`, `edit_file`, `write_file` | only production code | change the code |
+| tester | cheap | `run_tests`, `read_file` | nothing | run all tests |
+| reviewer | strong | read tools, `show_changes`, `run_tests` | nothing | check the changes against the requirements, structured verdict (approved + gaps) |
 
-**Im Code durchgesetzt, nicht nur im Prompt:**
+**Enforced in code, not just in the prompt:**
 
-- **Schreibrechte pro Rolle:** Ein unerlaubter Schreibversuch wird vom Werkzeug abgelehnt, der Agent
-  bekommt eine Fehlermeldung und kann es anders versuchen. Bestehende Tests kann niemand verändern.
-- **Abschluss nur nach Verifikation:** Will der Supervisor abschließen, obwohl der letzte vollständige
-  Testlauf nicht grün ist oder der Reviewer nicht freigegeben hat, leitet der Code automatisch zum
-  Tester bzw. Reviewer um. Jede Codeänderung macht eine Freigabe ungültig.
-- **Testergebnis aus Fakten:** Ob die Tests bestehen, entscheidet nicht das Modell, sondern der
-  tatsächliche Exit-Code des letzten Laufs über *alle* Tests. Teilläufe zählen nicht als bestanden.
-- **Modell nach Bedarf:** Urteilende Rollen nutzen das starke Modell (`OPENAI_STRONG_MODEL`, Standard
-  `gpt-4.1`), Routinerollen das günstige (`OPENAI_MODEL`, Standard `gpt-4.1-mini`). Der Entwickler
-  startet günstig und wechselt automatisch zum starken Modell, sobald er nachbessern muss.
+- **Write permissions per role:** a forbidden write attempt is rejected by the tool. The agent gets an
+  error message and can try a different approach. Nobody can change existing tests.
+- **Finishing only after verification:** if the supervisor wants to finish although the last full test
+  run is not green or the reviewer has not approved, the code automatically redirects to the tester
+  or reviewer. Every code change invalidates an approval.
+- **Test results from facts:** whether the tests pass is not decided by the model but by the actual
+  exit code of the last run over *all* tests. Partial runs do not count as passed.
+- **Model on demand:** judging roles use the strong model (`OPENAI_STRONG_MODEL`, default `gpt-4.1`),
+  routine roles the cheap one (`OPENAI_MODEL`, default `gpt-4.1-mini`). The developer starts on the
+  cheap model and automatically switches to the strong one as soon as it has to rework something.
 
-**Human-in-the-loop:** Wenn der Supervisor fertig ist, pausiert der Graph im Knoten `review`
-(`interrupt`, Zustand gesichert durch einen Checkpointer). Der Mensch sieht den Diff und kann
+**Human-in-the-loop:** when the supervisor is done, the graph pauses in the `review` node
+(`interrupt`, state saved by a checkpointer). The human sees the diff and can
 
-- **freigeben**: Die Änderungen werden aus der Arbeitskopie ins Repository übernommen,
-- **verwerfen**: Das Repository bleibt unverändert,
-- **Feedback geben**: Der Graph läuft mit dem Feedback weiter zum Supervisor, das Team arbeitet nach
-  und legt das Ergebnis erneut zur Freigabe vor.
+- **approve**: the changes are copied from the working copy into the repository,
+- **discard**: the repository stays unchanged,
+- **give feedback**: the graph continues with the feedback to the supervisor, the team reworks the
+  result and presents it for approval again.
 
 ```
-supervisor --(finish)--> review --(freigeben / verwerfen)--> END
+supervisor --(finish)--> review --(approve / discard)--> END
     ^                       |
-    +------(Feedback)-------+
+    +------(feedback)-------+
 ```
 
-**Persistente Läufe:** Jeder Lauf hat eine Lauf-ID. Der Zustand des Graphen wird nach jedem Schritt
-in einer SQLite-Datenbank gespeichert (`.runs/checkpoints.sqlite`, `thread_id` = Lauf-ID).
-Wird ein Lauf unterbrochen (Fenster geschlossen, Strg+C, Absturz), läuft er mit `--resume`
-am letzten gespeicherten Schritt weiter. Wartet er auf die Freigabe, geht es direkt dort weiter.
+**Persistent runs:** every run has a run ID. The graph's state is saved after every step in a
+SQLite database (`.runs/checkpoints.sqlite`, `thread_id` = run ID). If a run is interrupted
+(window closed, Ctrl+C, crash), `--resume` continues it from the last saved step. If it is
+waiting for approval, it continues right there.
 
-### Werkzeuge
+### Tools
 
-| Werkzeug | Zweck |
+| Tool | Purpose |
 |---|---|
-| `list_files` | Dateien im Repository auflisten |
-| `read_file` | Datei mit Zeilennummern lesen |
-| `search_code` | Regex-Suche im Code |
-| `edit_file` | Gezielte, eindeutige Textersetzung |
-| `write_file` | Neue Datei anlegen |
-| `run_tests` | `pytest` in der Docker-Sandbox ausführen (mit Zeitlimit) |
-| `show_changes` | Alle Änderungen gegenüber dem Ausgangsstand als Diff |
+| `list_files` | list the files in the repository |
+| `read_file` | read a file with line numbers |
+| `search_code` | regex search in the code |
+| `edit_file` | targeted, unique text replacement |
+| `write_file` | create a new file |
+| `run_tests` | run `pytest` in the Docker sandbox (with a time limit) |
+| `show_changes` | all changes compared to the initial state as a diff |
 
-## Sicherheit
+## Security
 
-- Alle Werkzeuge sind auf den Repository-Ordner beschränkt.
-- Parallele Dateiänderungen sind durch eine Sperre geschützt (keine verlorenen Änderungen).
-- Text mit Steuerzeichen wird nicht geschrieben. Kleine Modelle verstümmeln Sonderzeichen wie `€`
-  gelegentlich zu `\x00` und hatten so schon eine Quelldatei zerstört.
-- Das Team arbeitet auf einer Kopie unter `workspaces/`, das Original ändert sich erst nach der Freigabe.
-- Von den Agenten geschriebener Code läuft nur in einem Docker-Container ([sandbox/Dockerfile](sandbox/Dockerfile)):
-  kein Netzwerk, schreibgeschütztes Dateisystem, eigener Nutzer ohne Root-Rechte,
-  Limits für RAM (512 MB), CPU und Prozesse, keine API-Schlüssel in der Umgebung.
+- All tools are restricted to the repository folder.
+- Parallel file edits are protected by a lock (no lost changes).
+- Text containing control characters is not written. Small models occasionally mangle special
+  characters such as `€` into `\x00`, which once destroyed a source file.
+- The team works on a copy under `workspaces/`; the original only changes after approval.
+- Code written by the agents only runs in a Docker container ([sandbox/Dockerfile](sandbox/Dockerfile)):
+  no network, read-only file system, a dedicated user without root privileges,
+  limits for RAM (512 MB), CPU and processes, and no API keys in the environment.
 
-## Starten
+## Getting started
 
 ```
-# einmalig: .env.example nach .env kopieren und OPENAI_API_KEY eintragen
+# once: copy .env.example to .env and add your OPENAI_API_KEY
 pip install -r requirements.txt
 
 python -m coding_agent --repo benchmark/tasks/calculator/repo
-python -m coding_agent --repo <pfad> "Eigene Aufgabe"
-python -m coding_agent --repo <pfad> --auto-approve   # ohne Freigabe, z. B. für Evaluationen
-python -m coding_agent --resume <lauf-id>             # unterbrochenen Lauf fortsetzen
+python -m coding_agent --repo <path> "Your own task"
+python -m coding_agent --repo <path> --auto-approve   # without approval, e.g. for evaluations
+python -m coding_agent --resume <run-id>              # continue an interrupted run
 ```
 
-**Weboberfläche:**
+**Web interface:**
 
 ```
-python -m coding_agent.web          # öffnet http://localhost:8000
+python -m coding_agent.web          # opens http://localhost:8000
 ```
 
-FastAPI-Server, der den Graphen in einem Hintergrund-Thread ausführt und jeden Schritt per
-Server-Sent Events an den Browser streamt. Die Oberfläche zeigt das Team als 3D-Galaxie (Three.js/WebGL):
-Der Supervisor ist der leuchtende Kern, die Fach-Agenten kreisen als Planeten um ihn. Jeder Auftrag
-fliegt als Energiestrahl zum Agenten, jeder Bericht zurück. Daneben läuft der Verlauf mit Aufträgen,
-Werkzeugaufrufen, Testergebnissen, Berichten und den laufenden Kosten. Am Ende stehen Diff und
-Testergebnis zur Freigabe: übernehmen, verwerfen oder Feedback an das Team.
+A FastAPI server runs the graph in a background thread and streams every step to the browser via
+server-sent events. The interface shows the team as a 3D galaxy (Three.js/WebGL): the supervisor is
+the glowing core and the specialists orbit it as planets. Every instruction flies to the agent as an
+energy beam, and every report flies back. Next to it, a live feed shows instructions, tool calls,
+test results, reports and the running cost. At the end, the diff and test result are presented for
+approval: apply, discard or send feedback to the team.
 
-- **Budget-Modus:** alle Rollen mit dem günstigen Modell.
-- **Vorschau:** ein simulierter Lauf ohne Modellaufrufe, auch als statische Seite auf GitHub Pages.
-- Der Server lauscht nur auf `127.0.0.1`. Die Benchmark-Aufgaben werden vor jedem Lauf kopiert.
+- **Budget mode:** all roles on the cheap model.
+- **Preview:** a simulated run without model calls, also available as a static page on GitHub Pages.
+- The server only listens on `127.0.0.1`. The benchmark tasks are copied before every run.
 
-**Tracing (optional):** Mit `LANGSMITH_TRACING=true` und `LANGSMITH_API_KEY` in der `.env` wird jeder Lauf
-in LangSmith aufgezeichnet: jeder Supervisor-Entscheid, jeder Modell- und Werkzeugaufruf der Fach-Agenten,
-mit Tokens, Kosten und Dauer. Die Traces sind nach Lauf-ID, Projekt und Herkunft (CLI oder Evaluation) filterbar.
+**Tracing (optional):** with `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env`, every run is
+recorded in LangSmith: every supervisor decision and every model and tool call of the specialists,
+with tokens, cost and duration. Traces can be filtered by run ID, project and origin (CLI or evaluation).
 
-Docker Desktop muss laufen. Das Sandbox-Image wird beim ersten Start automatisch gebaut.
-Ohne Docker: `--no-sandbox` (Tests laufen dann lokal, nur für vertrauenswürdigen Code).
+Docker Desktop must be running. The sandbox image is built automatically on the first start.
+Without Docker: `--no-sandbox` (tests then run locally; only use this for trusted code).
 
 ## Evaluation
 
-Eigener Benchmark mit 10 Aufgaben in [benchmark/tasks/](benchmark/tasks/), von Off-by-one-Fehlern über
-Fehler in einer anderen als der getesteten Datei bis zu einer Feature-Anfrage im Stil eines Issues.
+A custom benchmark with 10 tasks in [benchmark/tasks/](benchmark/tasks/), ranging from off-by-one
+errors and bugs in a different file than the tested one to a feature request in the style of an issue.
 
-- **Versteckte Tests:** Bewertet wird zusätzlich mit Tests aus `hidden/`, die das Team nie sieht.
-- **Schutz gegen Schummeln:** Bewertet wird immer mit den Original-Tests. Verändert das Team Tests, wird das markiert.
-- **Geprüfter Benchmark:** Ein Test stellt sicher, dass jede Aufgabe anfangs fehlschlägt und mit der
-  Musterlösung aus `solution/` besteht.
+- **Hidden tests:** grading additionally uses tests from `hidden/` that the team never sees.
+- **Protection against cheating:** grading always uses the original tests. If the team changes tests, this is flagged.
+- **Verified benchmark:** a test makes sure that every task fails at first and passes with the
+  reference solution from `solution/`.
 
 ```
 python -m coding_agent.evaluate --repeats 3
 ```
 
-**Ergebnisse** (10 Aufgaben × 3 Wiederholungen, Berichte in [benchmark/results/](benchmark/results/)):
+**Results** (10 tasks × 3 repeats, reports in [benchmark/results/](benchmark/results/)):
 
-| Version | Gelöst | Ø Dauer | Ø Tokens | Ø Kosten pro Aufgabe |
+| Version | Solved | Avg. duration | Avg. tokens | Avg. cost per task |
 |---|---|---|---|---|
-| Team v1: explorer, developer, tester (`gpt-4.1-mini`) | 25/30 (83 %) | 33 s | 22.293 | $0,013 |
-| Team v2: + test_writer, reviewer, Guardrails (`gpt-4.1-mini`) | 23/30 (77 %) | 67 s | 62.730 | $0,032 |
-| Team v3: + Belegpflicht für Tests, Schutz vor Steuerzeichen (`gpt-4.1-mini`) | 25/30 (83 %) | 48 s | 39.549 | $0,020 |
-| **Team v4: + Modell nach Bedarf (`gpt-4.1-mini` / `gpt-4.1`)** | **30/30 (100 %)** | 42 s | 33.916 | $0,066 |
+| Team v1: explorer, developer, tester (`gpt-4.1-mini`) | 25/30 (83 %) | 33 s | 22,293 | $0.013 |
+| Team v2: + test_writer, reviewer, guardrails (`gpt-4.1-mini`) | 23/30 (77 %) | 67 s | 62,730 | $0.032 |
+| Team v3: + quotes required for tests, control character protection (`gpt-4.1-mini`) | 25/30 (83 %) | 48 s | 39,549 | $0.020 |
+| **Team v4: + model on demand (`gpt-4.1-mini` / `gpt-4.1`)** | **30/30 (100 %)** | 42 s | 33,916 | $0.066 |
 
-Was die Iterationen gezeigt haben:
+What the iterations showed:
 
-- **v1:** Das Team hört auf, sobald die sichtbaren Tests grün sind. Bei `leap_year` übersieht es
-  einen Fehler, der nur im Docstring beschrieben ist (0/3).
-- **v2:** Test-Autor und Reviewer lösen `leap_year` (3/3), aber das kleine Modell **erfindet Anforderungen**
-  (z. B. „Minuten müssen unter 60 liegen“) und baut sie in Tests und Code ein. Insgesamt ein Rückschritt.
-  Außerdem zerstörte ein verstümmeltes `€` eine Quelldatei.
-- **v3:** Belegpflicht (jeder Test mit Zitat aus Aufgabe oder Docstring) und Prüfung erfundener Regeln durch
-  den Reviewer verringern das, beseitigen es mit `gpt-4.1-mini` aber nicht (`duration` 0/3).
-- **v4:** Mit dem starken Modell für Supervisor, Test-Autor, Reviewer und Nachbesserungen löst das Team
-  alle Aufgaben in allen Läufen, bei etwa 5-fachen Kosten gegenüber v1.
+- **v1:** the team stops as soon as the visible tests are green. On `leap_year` it misses a bug
+  that is only described in the docstring (0/3).
+- **v2:** the test writer and reviewer solve `leap_year` (3/3), but the small model **invents requirements**
+  (e.g. "minutes must be below 60") and builds them into tests and code. Overall a step backwards.
+  In addition, a mangled `€` destroyed a source file.
+- **v3:** requiring a quote for every test (from the task or a docstring) and having the reviewer check
+  for invented rules reduces this, but does not eliminate it with `gpt-4.1-mini` (`duration` 0/3).
+- **v4:** with the strong model for the supervisor, test writer, reviewer and rework, the team solves
+  all tasks in all runs, at about 5 times the cost of v1.
 
-**Grenzen dieser Messung:**
+**Limits of this measurement:**
 
-- Die Aufgaben sind klein (1–3 Dateien) und für aktuelle Modelle eher leicht. Bei 100 % ist der Benchmark ausgereizt.
-- Der Sprung von v3 auf v4 kommt vom stärkeren Modell. Wie viel die Architektur allein beiträgt, wurde nicht
-  getrennt gemessen (dafür wäre ein Vergleich mit einem einfacheren System auf demselben Modell nötig).
-- Die Kosten sind aus Token-Zahlen und Listenpreisen geschätzt, ohne Rabatt für gecachte Eingaben.
+- The tasks are small (1–3 files) and rather easy for current models. At 100 %, the benchmark is maxed out.
+- The jump from v3 to v4 comes from the stronger model. How much the architecture alone contributes was not
+  measured separately (that would require a comparison with a simpler system on the same model).
+- The costs are estimated from token counts and list prices, without discounts for cached input.
+- These results were measured with the original German prompts and task texts. The project has since been
+  translated to English and has not been re-evaluated yet.
 
 ## Tests
 
@@ -190,30 +192,30 @@ Was die Iterationen gezeigt haben:
 python -m pytest
 ```
 
-Läuft bei jedem Push automatisch in GitHub Actions.
+Runs automatically on every push in GitHub Actions.
 
-## Projektstruktur
+## Project structure
 
 ```
 coding_agent/
-  team.py        Graph: Supervisor, Fach-Agenten, Guardrails, Freigabe-Knoten
-  tools.py       Werkzeuge mit Rollenrechten und Docker-Sandbox
-  runs.py        Läufe, Arbeitskopien, Checkpointing
-  evaluate.py    Benchmark-Auswertung
-  __main__.py    Kommandozeile
-  web/           FastAPI-Server, Ereignis-Übersetzung, Oberfläche (static/)
-benchmark/tasks/ 10 Aufgaben mit Repository, versteckten Tests und Musterlösung
-benchmark/results/ Messergebnisse der Iterationen
-sandbox/         Docker-Image für die Testausführung
-tests/           Tests für Werkzeuge, Graph, Läufe, Benchmark und Weboberfläche
+  team.py        graph: supervisor, specialists, guardrails, approval node
+  tools.py       tools with role permissions and the Docker sandbox
+  runs.py        runs, working copies, checkpointing
+  evaluate.py    benchmark evaluation
+  __main__.py    command line
+  web/           FastAPI server, event translation, interface (static/)
+benchmark/tasks/ 10 tasks with repository, hidden tests and reference solution
+benchmark/results/ measurements of the iterations
+sandbox/         Docker image for running the tests
+tests/           tests for tools, graph, runs, benchmark and web interface
 ```
 
-## Ausblick
+## Roadmap
 
-- Größere Projekte: Repo-Map für Codebasen mit vielen Dateien
-- Evaluation auf echten Open-Source-Fehlern (SWE-bench Lite)
-- Kontrollmessung: Beitrag der Architektur getrennt vom Modell
+- Larger projects: a repo map for codebases with many files
+- Evaluation on real open-source bugs (SWE-bench Lite)
+- Control measurement: the architecture's contribution separated from the model
 
-## Lizenz
+## License
 
-MIT, siehe [LICENSE](LICENSE). Three.js (MIT) liegt unverändert unter `coding_agent/web/static/vendor/`.
+MIT, see [LICENSE](LICENSE). Three.js (MIT) is included unchanged under `coding_agent/web/static/vendor/`.

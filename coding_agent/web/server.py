@@ -1,7 +1,7 @@
-"""Webserver der Oberfläche (FastAPI).
+"""Web server of the interface (FastAPI).
 
-Ein Lauf des Teams läuft in einem Hintergrund-Thread. Jedes Ereignis wird in einer Liste
-gesammelt und per Server-Sent Events an den Browser gestreamt.
+A team run executes in a background thread. Every event is collected in a list
+and streamed to the browser via server-sent events.
 """
 
 import asyncio
@@ -40,7 +40,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 BUDGET_MODELS = {"fast": "gpt-4.1-mini", "strong": "gpt-4.1-mini"}
 
 
-# --- Projekte -------------------------------------------------------------------
+# --- Projects --------------------------------------------------------------------
 
 def list_projects() -> list[dict]:
     return [{"id": f"task:{t.name}", "name": t.name, "kind": t.kind, "difficulty": t.difficulty,
@@ -59,10 +59,10 @@ def file_stats(original: Path, workspace: Path) -> list[dict]:
     return stats
 
 
-# --- Sitzungen ------------------------------------------------------------------
+# --- Sessions -------------------------------------------------------------------
 
 class RunSession:
-    """Ein Lauf des Teams: führt den Graphen aus und sammelt die Ereignisse, die der Browser abholt."""
+    """One team run: executes the graph and collects the events that the browser fetches."""
 
     def __init__(self, run: Run, models: dict[str, str], project: str) -> None:
         self.id, self.run, self.models = run.id, run, models
@@ -88,7 +88,7 @@ class RunSession:
 
     def decide(self, action: str, feedback: str) -> None:
         if self.busy:
-            raise HTTPException(409, "Das Team arbeitet noch.")
+            raise HTTPException(409, "The team is still working.")
         self.emit({"type": "decision", "action": action, "text": feedback})
         self.start(Command(resume={"action": action, "feedback": feedback}))
 
@@ -96,7 +96,7 @@ class RunSession:
         run = self.run
         try:
             app = build_team_graph(Path(run.workspace), run.sandbox, run.human_review, open_checkpointer(), self.models)
-            config = run_config(run.id, "coding-agent (web)", ["web"], {"lauf_id": run.id})
+            config = run_config(run.id, "coding-agent (web)", ["web"], {"run_id": run.id})
             base_cost, base_tokens = self.cost, self.tokens
             with get_usage_metadata_callback() as usage:
                 for namespace, chunk in app.stream(inputs, config, stream_mode="updates", subgraphs=True):
@@ -122,7 +122,7 @@ class RunSession:
                 self.emit({"type": "done", "outcome": "approve", "files": files})
             else:
                 self.emit({"type": "done", "outcome": "reject"})
-        except Exception as e:  # Fehler sollen in der Oberfläche erscheinen, nicht den Server stoppen
+        except Exception as e:  # errors should show up in the interface, not stop the server
             self.emit({"type": "error", "message": f"{type(e).__name__}: {e}"})
         finally:
             self.busy = False
@@ -145,13 +145,13 @@ class DecisionRequest(BaseModel):
     feedback: str = ""
 
 
-app = FastAPI(title="Coding-Agent")
+app = FastAPI(title="Coding Agent")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.middleware("http")
 async def no_cache(request, call_next):
-    # Die Oberfläche wird oft geändert: Der Browser soll immer die aktuelle Version laden.
+    # The interface changes often: the browser should always load the current version.
     response = await call_next(request)
     if not request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
@@ -177,12 +177,12 @@ def projects() -> list[dict]:
 def start(request: StartRequest) -> dict:
     project = next((p for p in list_projects() if p["id"] == request.project), None)
     if project is None:
-        raise HTTPException(404, "Unbekanntes Projekt.")
+        raise HTTPException(404, "Unknown project.")
     if not request.task.strip():
-        raise HTTPException(400, "Die Aufgabe ist leer.")
+        raise HTTPException(400, "The task is empty.")
     if request.sandbox:
         ensure_sandbox_image()
-    # Projekte werden kopiert, damit eine Freigabe nie den Benchmark verändert.
+    # Projects are copied so that an approval never changes the benchmark.
     repo = WORKSPACES_DIR / "web-repos" / f"{project['name']}-{time.strftime('%Y%m%d-%H%M%S')}"
     copy_repo(project["path"], repo)
     run = new_run(repo, request.task.strip(), sandbox=request.sandbox)
@@ -196,9 +196,9 @@ def start(request: StartRequest) -> dict:
 @app.post("/api/runs/{session_id}/decision")
 def decide(session_id: str, request: DecisionRequest) -> dict:
     if session_id not in sessions:
-        raise HTTPException(404, "Unbekannter Lauf.")
+        raise HTTPException(404, "Unknown run.")
     if request.action == "feedback" and not request.feedback.strip():
-        raise HTTPException(400, "Das Feedback ist leer.")
+        raise HTTPException(400, "The feedback is empty.")
     sessions[session_id].decide(request.action, request.feedback.strip())
     return {"ok": True}
 
@@ -206,7 +206,7 @@ def decide(session_id: str, request: DecisionRequest) -> dict:
 @app.get("/api/runs/{session_id}/events")
 async def events(session_id: str) -> StreamingResponse:
     if session_id not in sessions:
-        raise HTTPException(404, "Unbekannter Lauf.")
+        raise HTTPException(404, "Unknown run.")
     session = sessions[session_id]
 
     async def stream():
@@ -218,7 +218,7 @@ async def events(session_id: str) -> StreamingResponse:
             index += len(new)
             idle = 0 if new else idle + 1
             if idle and idle % 75 == 0:
-                yield ": ping\n\n"  # hält die Verbindung offen, während das Team arbeitet
+                yield ": ping\n\n"  # keeps the connection open while the team is working
             await asyncio.sleep(0.2)
 
     return StreamingResponse(stream(), media_type="text/event-stream",

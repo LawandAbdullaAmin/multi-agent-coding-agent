@@ -16,12 +16,12 @@ def test_read_file_shows_line_numbers(tools):
 
 
 def test_path_outside_repo_is_rejected(tools):
-    assert "außerhalb" in tools["read_file"].invoke({"path": "../secret.txt"})
+    assert "outside" in tools["read_file"].invoke({"path": "../secret.txt"})
 
 
 def test_edit_file_requires_unique_match(tools, tmp_path):
-    assert "2-mal" in tools["edit_file"].invoke({"path": "app.py", "old_text": "x = 1", "new_text": "x = 3"})
-    assert tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = 5"}) == "app.py geändert."
+    assert "2 times" in tools["edit_file"].invoke({"path": "app.py", "old_text": "x = 1", "new_text": "x = 3"})
+    assert tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = 5"}) == "app.py changed."
     assert (tmp_path / "app.py").read_text(encoding="utf-8") == "x = 1\ny = 5\nx = 1\n"
 
 
@@ -39,26 +39,26 @@ def test_parallel_edits_on_same_file_are_not_lost(tmp_path):
 
 def test_write_policy_blocks_writes(tmp_path):
     (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
-    tools = {t.name: t for t in make_tools(tmp_path, sandbox=False, can_write=lambda rel: "Nur lesen.")}
-    assert "darf nicht geändert werden. Nur lesen." in tools["edit_file"].invoke(
+    tools = {t.name: t for t in make_tools(tmp_path, sandbox=False, can_write=lambda rel: "Read only.")}
+    assert "must not be changed. Read only." in tools["edit_file"].invoke(
         {"path": "app.py", "old_text": "x = 1", "new_text": "x = 2"})
-    assert "darf nicht" in tools["write_file"].invoke({"path": "neu.py", "content": "y = 1"})
+    assert "must not" in tools["write_file"].invoke({"path": "new.py", "content": "y = 1"})
     assert (tmp_path / "app.py").read_text(encoding="utf-8") == "x = 1\n"
-    assert not (tmp_path / "neu.py").exists()
+    assert not (tmp_path / "new.py").exists()
 
 
 def test_control_characters_are_rejected(tools, tmp_path):
     result = tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = '10,05 \x1e'"})
-    assert "Steuerzeichen" in result
-    assert "Steuerzeichen" in tools["write_file"].invoke({"path": "neu.py", "content": "x = 1\x00"})
+    assert "control character" in result
+    assert "control character" in tools["write_file"].invoke({"path": "new.py", "content": "x = 1\x00"})
     assert (tmp_path / "app.py").read_text(encoding="utf-8") == "x = 1\ny = 2\nx = 1\n"
-    assert "geändert" in tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = '5 €'\t"})
+    assert "changed" in tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = '5 €'\t"})
 
 
 def test_show_changes_lists_edits_and_new_files(tools):
-    assert tools["show_changes"].invoke({}) == "Keine Änderungen."
+    assert tools["show_changes"].invoke({}) == "No changes."
     tools["edit_file"].invoke({"path": "app.py", "old_text": "y = 2", "new_text": "y = 5"})
-    tools["write_file"].invoke({"path": "neu.py", "content": "z = 1\n"})
+    tools["write_file"].invoke({"path": "new.py", "content": "z = 1\n"})
     changes = tools["show_changes"].invoke({})
     assert "-y = 2" in changes and "+y = 5" in changes and "+z = 1" in changes
 
@@ -69,10 +69,10 @@ def test_search_code_finds_matches(tools):
 
 def test_run_tests_reports_exit_code(tools, tmp_path):
     (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
-    assert tools["run_tests"].invoke({}).startswith("Exit-Code: 0")
+    assert tools["run_tests"].invoke({}).startswith("Exit code: 0")
 
 
-@pytest.mark.skipif(not docker_available(), reason="Docker läuft nicht")
+@pytest.mark.skipif(not docker_available(), reason="Docker is not running")
 def test_sandbox_has_no_network_and_readonly_repo(tmp_path):
     ensure_sandbox_image()
     (tmp_path / "test_sandbox.py").write_text(
@@ -86,5 +86,5 @@ def test_sandbox_has_no_network_and_readonly_repo(tmp_path):
         encoding="utf-8",
     )
     run_tests = {t.name: t for t in make_tools(tmp_path)}["run_tests"]
-    assert run_tests.invoke({}).startswith("Exit-Code: 0")
+    assert run_tests.invoke({}).startswith("Exit code: 0")
     assert not (tmp_path / "hacked.txt").exists()

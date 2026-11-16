@@ -1,21 +1,21 @@
-"""Coding-Agent: Supervisor mit Fach-Agenten und menschlicher Freigabe.
+"""Coding agent: a supervisor with specialist agents and human approval.
 
-Ablauf:
+Flow:
     supervisor -> explorer | test_writer | developer | tester | reviewer -> supervisor -> ... -> review -> END
                                                                                                  |
-                                                             Feedback des Menschen -> supervisor <+
+                                                                  human feedback -> supervisor <+
 
-Der Supervisor ist ein eigener LangGraph-Knoten. Er entscheidet per strukturierter
-Ausgabe, welcher Fach-Agent als Nächstes arbeitet und mit welchem Auftrag.
-Die Fach-Agenten sind mit create_agent gebaut. Ihre Rechte werden im Code durchgesetzt:
-Nur der Entwickler ändert Produktivcode, nur der Test-Autor legt neue Tests an,
-bestehende Tests sind für alle schreibgeschützt.
-Abschließen kann der Supervisor erst, wenn die Tests bestehen und der Reviewer die
-Lösung gegen die Anforderung freigegeben hat (verifiziert).
-Rollen, die urteilen müssen, nutzen ein starkes Modell, Routinerollen ein günstiges.
-Der Entwickler startet günstig und wechselt zum starken Modell, sobald er nachbessern muss.
-Im Knoten review pausiert der Graph (interrupt), bis ein Mensch das Ergebnis
-freigibt, verwirft oder Feedback gibt.
+The supervisor is its own LangGraph node. It uses structured output to decide
+which specialist works next and with which instruction.
+The specialists are built with create_agent. Their permissions are enforced in code:
+only the developer changes production code, only the test writer creates new tests,
+and existing tests are read-only for everyone.
+The supervisor can only finish once the tests pass and the reviewer has approved
+the solution against the requirements (verified).
+Roles that have to make judgments use a strong model, routine roles a cheap one.
+The developer starts on the cheap model and switches to the strong one as soon as it has to rework something.
+In the review node the graph pauses (interrupt) until a human approves,
+rejects or gives feedback on the result.
 """
 
 import operator
@@ -38,8 +38,8 @@ from coding_agent.tools import WritePolicy, is_test_file, iter_files, make_tools
 MAX_ROUNDS = 15
 WORKER_MODEL_CALLS = 15
 
-WORKER_RULES = ("\n\nDu arbeitest autonom in einem automatisierten Ablauf. Niemand beantwortet Rückfragen: "
-                "stelle keine Fragen, sondern erledige deinen Auftrag vollständig und berichte dann.")
+WORKER_RULES = ("\n\nYou work autonomously in an automated pipeline. Nobody answers questions: "
+                "do not ask any, complete your instruction fully and then report.")
 
 READ_TOOLS = ["list_files", "read_file", "search_code"]
 
@@ -48,8 +48,8 @@ ModelTier = Literal["fast", "strong", "escalate"]
 
 class Role(NamedTuple):
     tools: list[str]
-    toolset: str      # Werkzeugsatz mit den Schreibrechten der Rolle, siehe write_policies
-    model: ModelTier  # escalate: günstig beim ersten Einsatz, stark bei jedem weiteren
+    toolset: str      # toolset with the role's write permissions, see write_policies
+    model: ModelTier  # escalate: cheap on the first run, strong on every later one
     prompt: str
 
 
@@ -59,93 +59,93 @@ def model_names() -> dict[str, str]:
 
 
 def make_model(name: str) -> ChatOpenAI:
-    # Reasoning-Modelle (gpt-5, o3, ...) unterstützen keine temperature.
+    # Reasoning models (gpt-5, o3, ...) do not support temperature.
     return ChatOpenAI(model=name, temperature=0) if name.startswith("gpt-4") else ChatOpenAI(model=name)
 
 
 SPECIALISTS = {
     "explorer": Role(
         READ_TOOLS, "read_only", "fast",
-        "Du bist der Code-Explorer im Team. Du änderst nichts. Untersuche das Repository und berichte knapp: "
-        "relevante Dateien, die Ursache jedes Fehlers mit Zeilennummern und was genau geändert werden muss. "
-        "Prüfe auch, ob der Code alles erfüllt, was Docstrings und Kommentare versprechen, "
-        "auch wenn kein Test es prüft (z. B. beschriebene Fehlerfälle).",
+        "You are the code explorer on the team. You change nothing. Investigate the repository and report briefly: "
+        "relevant files, the cause of every bug with line numbers, and exactly what has to change. "
+        "Also check whether the code does everything that docstrings and comments promise, "
+        "even if no test checks it (e.g. documented error cases).",
     ),
     "test_writer": Role(
         [*READ_TOOLS, "write_file", "edit_file", "run_tests"], "new_tests", "strong",
-        "Du bist der Test-Autor im Team. Bevor der Code geändert wird, schreibst du Tests, die das gewünschte "
-        "Verhalten vollständig beschreiben: aus der Aufgabe, aus Docstrings und Kommentaren und aus dem Auftrag. "
-        "Denke besonders an Grenz- und Fehlerfälle, die beschrieben, aber noch nicht getestet sind. "
-        "Lege die Tests in einer neuen Datei an, z. B. test_spec_<modul>.py. Bestehende Testdateien und "
-        "Produktivcode darfst du nicht ändern. Teste nur, was ausdrücklich verlangt oder dokumentiert ist: "
-        "Schreibe über jeden Test einen Kommentar mit dem wörtlichen Zitat aus Aufgabe oder Docstring, das ihn "
-        "begründet. Ohne solches Zitat schreibst du den Test nicht. Triff keine eigenen Annahmen über Formate, "
-        "Grenzen, Wertebereiche oder zusätzliche Fehlerfälle. Wenig korrekte Tests sind besser als viele erfundene. "
-        "Führe die Tests aus und berichte, welche neuen Tests fehlschlagen und warum. Solange der Fehler "
-        "nicht behoben ist, ist das erwartet. Sollst du einen deiner Tests korrigieren, bearbeite deine Datei.",
+        "You are the test writer on the team. Before the code is changed, you write tests that fully describe the "
+        "desired behavior: from the task, from docstrings and comments, and from your instruction. "
+        "Pay special attention to edge and error cases that are documented but not yet tested. "
+        "Put the tests in a new file, e.g. test_spec_<module>.py. You must not change existing test files or "
+        "production code. Only test what is explicitly required or documented: "
+        "above every test, write a comment with the verbatim quote from the task or docstring that justifies it. "
+        "Without such a quote, do not write the test. Make no assumptions of your own about formats, "
+        "limits, value ranges or additional error cases. A few correct tests are better than many invented ones. "
+        "Run the tests and report which new tests fail and why. As long as the bug "
+        "is not fixed, that is expected. If you are asked to fix one of your tests, edit your file.",
     ),
     "developer": Role(
         ["read_file", "search_code", "edit_file", "write_file"], "production", "escalate",
-        "Du bist der Entwickler im Team. Setze den Auftrag mit gezielten, minimalen Änderungen um. "
-        "Erfülle die Anforderung vollständig, wie sie in Aufgabe, Docstrings und Tests beschrieben ist, "
-        "nicht nur die Tests. Lies eine Datei, bevor du sie änderst, und nutze edit_file für bestehende Dateien. "
-        "Testdateien sind für dich schreibgeschützt. Verlangt ein Test etwas, das weder in der Aufgabe noch in "
-        "einem Docstring steht oder ihnen widerspricht, ändere den Code nicht dafür, sondern nenne den Test "
-        "in deinem Bericht. Berichte zum Schluss, was du geändert hast.",
+        "You are the developer on the team. Carry out the instruction with targeted, minimal changes. "
+        "Fulfill the requirement completely as described in the task, docstrings and tests, "
+        "not just the tests. Read a file before you change it, and use edit_file for existing files. "
+        "Test files are read-only for you. If a test requires something that is neither in the task nor in "
+        "a docstring, or contradicts them, do not change the code for it; name the test "
+        "in your report instead. Finally, report what you changed.",
     ),
     "tester": Role(
         ["run_tests", "read_file"], "read_only", "fast",
-        "Du bist der Tester im Team. Du änderst nichts. Führe immer alle Tests aus (run_tests ohne target), "
-        "auch wenn der Auftrag einzelne Dateien nennt, und berichte, wie viele "
-        "bestanden haben und wie viele fehlgeschlagen sind, und bei Fehlern die genaue Ursache laut Ausgabe.",
+        "You are the tester on the team. You change nothing. Always run all tests (run_tests without target), "
+        "even if the instruction names individual files, and report how many "
+        "passed and how many failed, and for failures the exact cause according to the output.",
     ),
     "reviewer": Role(
         [*READ_TOOLS, "show_changes", "run_tests"], "read_only", "strong",
-        "Du bist der Reviewer im Team. Du änderst nichts. Prüfe, ob die Änderungen (show_changes) die Aufgabe "
-        "vollständig erfüllen. Gehe jede Anforderung aus der Aufgabe und aus den Docstrings der betroffenen "
-        "Funktionen einzeln durch, auch beschriebene Fehlerfälle, und vergleiche sie mit dem Code. Prüfe auch "
-        "die neu angelegten Testdateien: Jeder Test muss durch Aufgabe oder Docstring gedeckt sein. Ein Test oder "
-        "eine Code-Regel, die mehr verlangt als beschrieben (erfundene Einschränkung), ist ebenfalls eine Lücke. "
-        "Führe alle Tests aus (run_tests ohne target). Gib approved=true nur, wenn alles erfüllt ist, nichts "
-        "erfunden wurde und alle Tests bestehen. Sonst nenne in issues jede Lücke konkret mit Datei und Funktion.",
+        "You are the reviewer on the team. You change nothing. Check whether the changes (show_changes) fully "
+        "fulfill the task. Go through every requirement from the task and from the docstrings of the affected "
+        "functions one by one, including documented error cases, and compare them with the code. Also check "
+        "the newly created test files: every test must be covered by the task or a docstring. A test or "
+        "a code rule that requires more than described (an invented restriction) is also a gap. "
+        "Run all tests (run_tests without target). Set approved=true only if everything is fulfilled, nothing "
+        "was invented and all tests pass. Otherwise list every gap in issues, concretely with file and function.",
     ),
 }
 
-SUPERVISOR_PROMPT = """Du bist der Supervisor eines Entwickler-Teams und steuerst die Arbeit an einer Aufgabe.
+SUPERVISOR_PROMPT = """You are the supervisor of a developer team and steer the work on a task.
 
-Dein Team:
-- explorer: untersucht den Code, findet Fehlerursachen und nicht erfüllte Anforderungen. Ändert nichts.
-- test_writer: schreibt neue Tests, die die Anforderungen vollständig abdecken. Ändert keinen Produktivcode.
-- developer: ändert den Produktivcode. Darf keine Tests ändern.
-- tester: führt die Tests aus und berichtet das Ergebnis. Ändert nichts.
-- reviewer: prüft die Änderungen gegen die Anforderungen und gibt frei oder nennt Lücken. Ändert nichts.
+Your team:
+- explorer: investigates the code, finds bug causes and unmet requirements. Changes nothing.
+- test_writer: writes new tests that fully cover the requirements. Does not change production code.
+- developer: changes the production code. Must not change tests.
+- tester: runs the tests and reports the result. Changes nothing.
+- reviewer: checks the changes against the requirements and approves or names gaps. Changes nothing.
 
-Entscheide jeweils, wer als Nächstes arbeitet, und gib ihm einen klaren, konkreten Auftrag.
-Die Fach-Agenten sehen nur die Aufgabe und deinen Auftrag, nicht die bisherigen Berichte.
-Gib ihnen deshalb alle nötigen Informationen daraus mit (Dateien, Funktionen, Ursachen, Anforderungen).
+Each time, decide who works next and give them a clear, concrete instruction.
+The specialists only see the task and your instruction, not the previous reports.
+So pass on all the information they need from those reports (files, functions, causes, requirements).
 
-Typischer Ablauf: explorer -> test_writer -> developer -> tester -> reviewer -> finish.
-Schlagen Tests fehl oder findet der reviewer Lücken, geht es zurück zum developer.
-Fehlen Tests, oder verlangt ein neuer Test mehr als Aufgabe und Docstrings (laut developer oder reviewer),
-beauftrage den test_writer, ihn zu ergänzen bzw. zu korrigieren. Erfundene Anforderungen sind ein Fehler.
-Abschließen (finish) kannst du erst, wenn die Tests bestehen und der reviewer freigegeben hat.
-Fasse dann im Feld summary zusammen, was gemacht wurde.
+Typical flow: explorer -> test_writer -> developer -> tester -> reviewer -> finish.
+If tests fail or the reviewer finds gaps, go back to the developer.
+If tests are missing, or a new test requires more than the task and docstrings (according to developer or reviewer),
+instruct the test_writer to add or correct it. Invented requirements are a mistake.
+You can only finish once the tests pass and the reviewer has approved.
+Then summarize what was done in the summary field.
 
-Berichte von "mensch" sind Feedback des Nutzers zu deinem letzten Ergebnis.
-Sie haben Vorrang: Setze das Feedback um und lass danach erneut testen und prüfen.
-Berichte von "system" erklären, warum ein Abschluss abgelehnt wurde."""
+Reports from "human" are the user's feedback on your last result.
+They take priority: implement the feedback and then have it tested and reviewed again.
+Reports from "system" explain why finishing was rejected."""
 
 
 class Decision(BaseModel):
     next: Literal["explorer", "test_writer", "developer", "tester", "reviewer", "finish"]
-    instruction: str = Field(description="Konkreter Auftrag an den Fach-Agenten, leer bei finish")
-    summary: str = Field(description="Abschlussbericht bei finish, sonst leer")
+    instruction: str = Field(description="Concrete instruction for the specialist, empty on finish")
+    summary: str = Field(description="Final report on finish, otherwise empty")
 
 
 class ReviewVerdict(BaseModel):
-    approved: bool = Field(description="True nur, wenn alle Anforderungen erfüllt sind und alle Tests bestehen")
-    issues: list[str] = Field(description="Konkrete Lücken mit Datei und Funktion, leer bei Freigabe")
-    summary: str = Field(description="Kurze Begründung")
+    approved: bool = Field(description="True only if all requirements are met and all tests pass")
+    issues: list[str] = Field(description="Concrete gaps with file and function, empty on approval")
+    summary: str = Field(description="Short justification")
 
 
 class Report(TypedDict, total=False):
@@ -163,34 +163,34 @@ class State(TypedDict, total=False):
     summary: str
     rounds: int
     tests_passed: bool
-    spec_approved: bool  # Freigabe durch den Reviewer, verfällt bei jeder Änderung
-    review: Literal["approve", "reject", "feedback"]  # Entscheidung des Menschen
+    spec_approved: bool  # reviewer approval, reset by every change
+    review: Literal["approve", "reject", "feedback"]  # the human's decision
 
 
 class ReviewAnswer(TypedDict, total=False):
-    """Antwort des Menschen, mit der der Graph nach dem interrupt fortgesetzt wird."""
+    """The human's answer that resumes the graph after the interrupt."""
     action: Literal["approve", "reject", "feedback"]
     feedback: str
 
 
 def format_reports(reports: list[Report]) -> str:
     if not reports:
-        return "(noch keine)"
-    return "\n\n".join(f"[{r['agent']}] Auftrag: {r['instruction']}\nBericht: {r['result']}" for r in reports)
+        return "(none yet)"
+    return "\n\n".join(f"[{r['agent']}] Instruction: {r['instruction']}\nReport: {r['result']}" for r in reports)
 
 
 def is_write(message) -> bool:
-    """Hat dieser Werkzeugaufruf eine Datei tatsächlich geändert? Abgelehnte Versuche zählen nicht."""
+    """Did this tool call actually change a file? Rejected attempts do not count."""
     return (isinstance(message, ToolMessage) and message.name in ("edit_file", "write_file")
             and message.status != "error")
 
 
 def last_test_result(messages: list) -> bool | None:
-    """Wertet die Werkzeugaufrufe aus: Haben die Tests zuletzt bestanden?
+    """Evaluates the tool calls: did the tests pass most recently?
 
-    Als bestanden zählt nur ein Lauf über alle Tests. Ein Teillauf (run_tests mit target)
-    kann nur ein Fehlschlagen anzeigen. Jede Änderung danach macht das Ergebnis ungültig.
-    None, wenn nichts davon passiert ist.
+    Only a run over all tests counts as passed. A partial run (run_tests with target)
+    can only signal a failure. Any change afterwards invalidates the result.
+    None if none of this happened.
     """
     targets = {call["id"]: call["args"].get("target") for m in messages if isinstance(m, AIMessage)
                for call in m.tool_calls}
@@ -210,18 +210,18 @@ def wrote_files(messages: list) -> bool:
 
 
 def pick_tier(role: ModelTier, name: str, reports: list[Report]) -> Literal["fast", "strong"]:
-    """Bei escalate: günstig beim ersten Einsatz, stark sobald die Rolle nachbessern muss."""
+    """For escalate: cheap on the first run, strong as soon as the role has to rework something."""
     if role != "escalate":
         return role
     return "strong" if any(r["agent"] == name for r in reports) else "fast"
 
 
 def verification_step(state: State) -> tuple[str, str] | None:
-    """Was fehlt noch, bevor abgeschlossen werden darf? None, wenn die Lösung verifiziert ist."""
+    """What is still missing before finishing is allowed? None if the solution is verified."""
     if not state.get("tests_passed"):
-        return "tester", "Führe alle Tests aus und berichte das Ergebnis."
+        return "tester", "Run all tests and report the result."
     if not state.get("spec_approved"):
-        return "reviewer", "Prüfe die Änderungen (show_changes) vollständig gegen die Aufgabe und die Docstrings."
+        return "reviewer", "Check the changes (show_changes) completely against the task and the docstrings."
     return None
 
 
@@ -230,16 +230,16 @@ def write_policies(repo: Path) -> dict[str, WritePolicy | None]:
                       if is_test_file(p.relative_to(repo).as_posix())}
 
     def read_only(rel: str) -> str | None:
-        return "Diese Rolle darf nichts ändern."
+        return "This role must not change anything."
 
     def production(rel: str) -> str | None:
-        return "Testdateien sind für den Entwickler schreibgeschützt." if is_test_file(rel) else None
+        return "Test files are read-only for the developer." if is_test_file(rel) else None
 
     def new_tests(rel: str) -> str | None:
         if not is_test_file(rel):
-            return "Der Test-Autor darf nur Testdateien schreiben (Name test_*.py)."
+            return "The test writer may only write test files (named test_*.py)."
         if rel in existing_tests:
-            return "Bestehende Testdateien sind schreibgeschützt. Lege eine neue Datei an, z. B. test_spec_<modul>.py."
+            return "Existing test files are read-only. Create a new file, e.g. test_spec_<module>.py."
         return None
 
     return {"read_only": read_only, "production": production, "new_tests": new_tests}
@@ -256,18 +256,18 @@ def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True
     def supervisor(state: State) -> State:
         rounds = state.get("rounds", 0)
         if rounds >= MAX_ROUNDS:
-            return {"next": "finish", "summary": f"Abgebrochen: Rundenlimit ({MAX_ROUNDS}) erreicht."}
+            return {"next": "finish", "summary": f"Aborted: round limit ({MAX_ROUNDS}) reached."}
         decision = supervisor_llm.invoke([
             SystemMessage(SUPERVISOR_PROMPT),
-            HumanMessage(f"Aufgabe: {state['task']}\n\nBisherige Berichte:\n{format_reports(state.get('reports', []))}"),
+            HumanMessage(f"Task: {state['task']}\n\nReports so far:\n{format_reports(state.get('reports', []))}"),
         ])
         update: State = {"next": decision.next, "instruction": decision.instruction,
                          "summary": decision.summary, "rounds": rounds + 1}
-        # Guardrail im Code statt im Prompt: Ohne grüne Tests und Freigabe des Reviewers kein Abschluss.
+        # Guardrail in code instead of the prompt: no finish without green tests and reviewer approval.
         if decision.next == "finish" and (missing := verification_step(state)):
             update["next"], update["instruction"] = missing
-            update["reports"] = [{"agent": "system", "instruction": "Abschluss geprüft",
-                                  "result": f"Abschluss abgelehnt, noch nicht verifiziert. Weiter mit {missing[0]}."}]
+            update["reports"] = [{"agent": "system", "instruction": "Finish checked",
+                                  "result": f"Finish rejected, not verified yet. Continuing with {missing[0]}."}]
         return update
 
     def make_worker(name: str, role: Role):
@@ -284,14 +284,14 @@ def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True
         def worker(state: State) -> State:
             tier = pick_tier(role.model, name, state.get("reports", []))
             result = agents[tier].invoke({"messages": [HumanMessage(
-                f"Aufgabe des Teams: {state['task']}\n\nDein Auftrag: {state['instruction']}"
+                f"Team task: {state['task']}\n\nYour instruction: {state['instruction']}"
             )]})
             messages = result["messages"]
-            text = messages[-1].text or "(kein Bericht)"
+            text = messages[-1].text or "(no report)"
             update: State = {}
             if (verdict := result.get("structured_response")) is not None:
                 update["spec_approved"] = verdict.approved
-                text = f"Freigegeben: {'ja' if verdict.approved else 'nein'}. {verdict.summary}"
+                text = f"Approved: {'yes' if verdict.approved else 'no'}. {verdict.summary}"
                 text += "".join(f"\n- {issue}" for issue in verdict.issues)
             if wrote_files(messages):
                 update["spec_approved"] = False
@@ -304,16 +304,16 @@ def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True
         return worker
 
     def review(state: State) -> State:
-        # Der Graph pausiert hier. Fortgesetzt wird mit Command(resume=ReviewAnswer).
+        # The graph pauses here. It is resumed with Command(resume=ReviewAnswer).
         answer: ReviewAnswer = interrupt({"summary": state.get("summary", ""),
                                           "tests_passed": state.get("tests_passed")})
         if answer["action"] != "feedback":
             return {"review": answer["action"]}
         return {
             "review": "feedback",
-            "rounds": 0,  # neues Rundenbudget für die Nacharbeit
+            "rounds": 0,  # fresh round budget for the rework
             "spec_approved": False,
-            "reports": [{"agent": "mensch", "instruction": "Prüfung des Ergebnisses", "result": answer["feedback"]}],
+            "reports": [{"agent": "human", "instruction": "Review of the result", "result": answer["feedback"]}],
         }
 
     def route_after_supervisor(state: State) -> str:
@@ -334,6 +334,6 @@ def build_team_graph(repo: Path, sandbox: bool = True, human_review: bool = True
     graph.add_edge(START, "supervisor")
     graph.add_conditional_edges("supervisor", route_after_supervisor, [*SPECIALISTS, "review", END])
     graph.add_conditional_edges("review", route_after_review, ["supervisor", END])
-    # Der Checkpointer speichert den Zustand nach jedem Schritt. Nur so kann der Graph
-    # beim interrupt pausieren und später an derselben Stelle weiterlaufen.
+    # The checkpointer saves the state after every step. This is what lets the graph
+    # pause at the interrupt and later continue from the same point.
     return graph.compile(checkpointer=checkpointer or InMemorySaver())

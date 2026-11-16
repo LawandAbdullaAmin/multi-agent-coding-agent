@@ -16,16 +16,16 @@ def tool_result(name: str, content: str) -> ToolMessage:
 
 
 def test_no_tests_and_no_edits_is_unknown():
-    assert last_test_result([AIMessage("fertig"), tool_result("read_file", "x = 1")]) is None
+    assert last_test_result([AIMessage("done"), tool_result("read_file", "x = 1")]) is None
 
 
 def test_last_test_run_counts():
-    messages = [tool_result("run_tests", "Exit-Code: 1\n..F"), tool_result("run_tests", "Exit-Code: 0\n...")]
+    messages = [tool_result("run_tests", "Exit code: 1\n..F"), tool_result("run_tests", "Exit code: 0\n...")]
     assert last_test_result(messages) is True
 
 
 def test_edit_after_green_tests_invalidates_result():
-    messages = [tool_result("run_tests", "Exit-Code: 0\n..."), tool_result("edit_file", "app.py geändert.")]
+    messages = [tool_result("run_tests", "Exit code: 0\n..."), tool_result("edit_file", "app.py changed.")]
     assert last_test_result(messages) is False
 
 
@@ -34,23 +34,23 @@ def run_tests_call(call_id: str, target: str = "") -> AIMessage:
 
 
 def test_only_full_test_run_counts_as_passed():
-    partial = [run_tests_call("1", "test_a.py"), ToolMessage("Exit-Code: 0", name="run_tests", tool_call_id="1")]
+    partial = [run_tests_call("1", "test_a.py"), ToolMessage("Exit code: 0", name="run_tests", tool_call_id="1")]
     assert last_test_result(partial) is None
-    partial_red = [run_tests_call("1", "test_a.py"), ToolMessage("Exit-Code: 1", name="run_tests", tool_call_id="1")]
+    partial_red = [run_tests_call("1", "test_a.py"), ToolMessage("Exit code: 1", name="run_tests", tool_call_id="1")]
     assert last_test_result(partial_red) is False
-    full = [run_tests_call("2"), ToolMessage("Exit-Code: 0", name="run_tests", tool_call_id="2")]
+    full = [run_tests_call("2"), ToolMessage("Exit code: 0", name="run_tests", tool_call_id="2")]
     assert last_test_result(full) is True
 
 
 def test_rejected_edits_are_not_changes():
-    rejected = ToolMessage("Fehler: test_app.py darf nicht geändert werden.", name="edit_file", tool_call_id="1",
+    rejected = ToolMessage("Error: test_app.py must not be changed.", name="edit_file", tool_call_id="1",
                            status="error")
     assert not wrote_files([rejected])
-    assert wrote_files([tool_result("edit_file", "app.py geändert.")])
-    # Entscheidend ist der Fehlerstatus, nicht der Text: Auch eine Datei namens Fehler.py ist eine Änderung.
-    assert wrote_files([tool_result("write_file", "Fehler.py geschrieben (3 Zeilen).")])
-    # Ein abgelehnter Schreibversuch macht ein grünes Testergebnis nicht ungültig.
-    assert last_test_result([tool_result("run_tests", "Exit-Code: 0\n..."), rejected]) is True
+    assert wrote_files([tool_result("edit_file", "app.py changed.")])
+    # What matters is the error status, not the text: a file named error.py is still a change.
+    assert wrote_files([tool_result("write_file", "error.py written (3 lines).")])
+    # A rejected write attempt does not invalidate a green test result.
+    assert last_test_result([tool_result("run_tests", "Exit code: 0\n..."), rejected]) is True
 
 
 def test_finish_requires_green_tests_and_review():
@@ -68,7 +68,7 @@ def test_write_policies(tmp_path):
     assert policies["read_only"]("app.py")
     assert policies["production"]("app.py") is None
     assert policies["production"]("test_app.py")
-    assert policies["production"]("tests/test_neu.py")
+    assert policies["production"]("tests/test_new.py")
     assert policies["new_tests"]("test_spec_app.py") is None
-    assert policies["new_tests"]("test_app.py")   # bestehender Test
-    assert policies["new_tests"]("app.py")        # Produktivcode
+    assert policies["new_tests"]("test_app.py")   # existing test
+    assert policies["new_tests"]("app.py")        # production code

@@ -1,4 +1,4 @@
-"""Hilfsfunktionen für Geldbeträge. Intern wird in Cent gerechnet, um Rundungsfehler zu vermeiden."""
+"""Helper functions for money amounts. Internally everything is calculated in cents to avoid rounding errors."""
 
 
 def to_cents(euros: float) -> int:
@@ -6,5 +6,5 @@ def to_cents(euros: float) -> int:
 
 
 def format_euros(cents: int) -> str:
-    """Formatiert Cent als Euro-Betrag, z. B. 1999 -> '19,99 €'."""
+    """Formats cents as a euro amount, e.g. 1999 -> '19,99 €'."""
     return f"{cents // 100},{cents % 100} €"

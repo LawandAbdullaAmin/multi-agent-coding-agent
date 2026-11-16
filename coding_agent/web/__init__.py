@@ -1,1 +1,1 @@
-"""Weboberfläche des Coding-Agenten."""
+"""Web interface of the coding agent."""
